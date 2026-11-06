@@ -1,0 +1,147 @@
+---
+import App from '../../../layouts/App.astro';
+import AppHeader from '../../../components/AppHeader.astro';
+import TitleRow from '../../../components/TitleRow.astro';
+import { loadEnvPage, fmt } from '../../../lib/page';
+import { rangeOf, url } from '../../../lib/server';
+import { heatmapData, heatmapPages } from '../../../lib/stats';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser } = ctx;
+if (env.kind !== 'web') return Astro.redirect(url(`e/${env.id}`));
+const r = rangeOf(Astro.url);
+const pages = await heatmapPages(env.id, r.from, r.to);
+const sp = Astro.url.searchParams;
+const path = sp.get('page') || pages[0]?.path || '/';
+const device = sp.get('device') === 'mobile' ? 'mobile' : 'desktop';
+const mode = sp.get('mode') === 'scroll' ? 'scroll' : 'clicks';
+const data = await heatmapData(env.id, path, device, r.from, r.to);
+const width = data.geo?.dw || (device === 'mobile' ? 390 : 1280);
+const height = Math.min(data.geo?.dh || (device === 'mobile' ? 2400 : 3000), 20000);
+const fold = data.geo?.vh || (device === 'mobile' ? 760 : 820);
+const link = (patch: Record<string, string>) => {
+  const u = new URL(Astro.url);
+  for (const [k, v] of Object.entries(patch)) u.searchParams.set(k, v);
+  return u.pathname + u.search;
+};
+const payload = JSON.stringify({
+  mode, width, height, fold, reach: data.reach,
+  clicks: data.clicks.map((c) => [Math.round(c.xr * width), Math.round(c.dh ? (c.y * height) / c.dh : c.y), c.rage]),
+}).replace(/</g, '\\u003c');
+const rageCount = data.clicks.filter((c) => c.rage).length;
+const pageUrl = env.domain ? `https://${env.domain}${path}` : '';
+---
+<App title={`${env.name} · Heatmaps`}>
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="heatmaps" devUser={devUser} />
+  <main class="z-main">
+    <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} title="Heatmaps" range={r.key} />
+    <section class="z-card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+      <form method="get" style="display:flex;gap:8px;align-items:center;flex:1;min-width:240px">
+        <input type="hidden" name="range" value={r.key} />
+        <input type="hidden" name="device" value={device} />
+        <input type="hidden" name="mode" value={mode} />
+        <label class="z-menu-label" for="hm-page" style="margin:0">Page</label>
+        <select id="hm-page" class="z-select" name="page" style="flex:1;max-width:420px" onchange="this.form.submit()">
+          {pages.length === 0 && <option value={path}>{path}</option>}
+          {pages.map((p) => <option value={p.path} selected={p.path === path}>{p.path} · {fmt.int(p.views)} views</option>)}
+        </select>
+        <noscript><button class="z-btn z-btn-secondary">Show</button></noscript>
+      </form>
+      <nav class="z-seg" aria-label="Map">
+        <a href={link({ mode: 'clicks' })} aria-current={String(mode === 'clicks')}>Clicks</a>
+        <a href={link({ mode: 'scroll' })} aria-current={String(mode === 'scroll')}>Scroll</a>
+      </nav>
+      <nav class="z-seg" aria-label="Device">
+        <a href={link({ device: 'desktop' })} aria-current={String(device === 'desktop')}>Desktop</a>
+        <a href={link({ device: 'mobile' })} aria-current={String(device === 'mobile')}>Mobile</a>
+      </nav>
+    </section>
+
+    <section class="z-grid z-kpis">
+      <div class="z-card"><div class="z-kpi-label">Page views</div><div class="z-kpi-value">{fmt.int(data.geo?.n || 0)}</div></div>
+      <div class="z-card"><div class="z-kpi-label">Clicks</div><div class="z-kpi-value">{fmt.int(data.clicks.length)}</div></div>
+      <div class="z-card"><div class="z-kpi-label">Rage clicks</div><div class="z-kpi-value">{fmt.int(rageCount)}</div></div>
+      <div class="z-card"><div class="z-kpi-label">Saw the whole page</div><div class="z-kpi-value">{fmt.pct((data.reach[20] || 0) * 100)}</div></div>
+    </section>
+
+    <section class="z-card">
+      <div class="z-card-head">
+        <span class="z-card-title">{path}</span>
+        <span class="z-heat-legend" style="margin-left:auto">{mode === 'clicks' ? 'Fewer' : 'Fewer reach'}<i></i>{mode === 'clicks' ? 'More clicks' : 'Everyone'}</span>
+      </div>
+      {(data.geo?.n || 0) === 0 ? (
+        <p class="muted" style="margin:0;font-size:13px">No {device} views of this page in the period yet.</p>
+      ) : (
+        <div class="z-heat-wrap" id="hm-wrap">
+          <div class="z-heat-stage" id="hm-stage" style={`width:${width}px;height:${height}px`}>
+            <div class="z-heat-blank" aria-hidden="true"></div>
+            {pageUrl && <iframe src={pageUrl} title={`Preview of ${path}`} loading="lazy" referrerpolicy="no-referrer" sandbox="allow-same-origin" style={`width:${width}px;height:${height}px`}></iframe>}
+            <canvas id="hm-canvas" width={width} height={height} style={`width:${width}px;height:${height}px`}></canvas>
+          </div>
+        </div>
+      )}
+      <p class="muted" style="margin:12px 0 0;font-size:12px">The page is shown live from {env.domain}. If it stays blank, the site blocks framing — the heat layer is still correct, on a neutral background. Scripts are disabled in the preview, so it doesn’t count as a visit.</p>
+    </section>
+    <script type="application/json" id="hm-data" set:html={payload}></script>
+  </main>
+  <script is:inline>
+    (function () {
+      var el = document.getElementById('hm-data'), cv = document.getElementById('hm-canvas');
+      if (!el || !cv) return;
+      var d = JSON.parse(el.textContent), W = d.width, H = d.height, ctx = cv.getContext('2d');
+      var wrap = document.getElementById('hm-wrap'), stage = document.getElementById('hm-stage');
+      function fit() {
+        var s = Math.min(1, (wrap.clientWidth - 2) / W);
+        stage.style.transform = 'scale(' + s + ')';
+        stage.style.marginBottom = (H * s - H) + 'px';
+        stage.style.marginRight = (W * s - W) + 'px';
+      }
+      fit(); addEventListener('resize', fit);
+      // Palette from the logo: blue → amber → coral.
+      var stops = [[0, [59, 120, 253]], [0.45, [255, 188, 64]], [1, [255, 82, 56]]];
+      function col(t) {
+        for (var i = 1; i < stops.length; i++) if (t <= stops[i][0]) {
+          var a = stops[i - 1], b = stops[i], k = (t - a[0]) / (b[0] - a[0]);
+          return [0, 1, 2].map(function (j) { return Math.round(a[1][j] + (b[1][j] - a[1][j]) * k); });
+        }
+        return stops[stops.length - 1][1];
+      }
+      if (d.mode === 'scroll') {
+        var step = H / 20;
+        for (var i = 0; i < 20; i++) {
+          var r = d.reach[i] || 0, c = col(r);
+          ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (0.18 + 0.32 * r) + ')';
+          ctx.fillRect(0, i * step, W, step + 1);
+        }
+        ctx.font = '600 ' + Math.max(14, W / 70) + 'px Inter, system-ui, sans-serif';
+        for (var j = 1; j < 20; j += 2) {
+          var y = j * step, label = Math.round((d.reach[j] || 0) * 100) + '% reached here';
+          ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(16, y - 14, ctx.measureText(label).width + 20, 28);
+          ctx.fillStyle = '#fff'; ctx.fillText(label, 26, y + 6);
+        }
+      } else {
+        // Accumulate intensity in alpha, then colour it.
+        var R = Math.max(18, W / 45), off = document.createElement('canvas'); off.width = W; off.height = H;
+        var o = off.getContext('2d');
+        d.clicks.forEach(function (p) {
+          var g = o.createRadialGradient(p[0], p[1], 0, p[0], p[1], R);
+          g.addColorStop(0, 'rgba(0,0,0,' + (p[2] ? 0.16 : 0.08) + ')'); g.addColorStop(1, 'rgba(0,0,0,0)');
+          o.fillStyle = g; o.fillRect(p[0] - R, p[1] - R, R * 2, R * 2);
+        });
+        var img = o.getImageData(0, 0, W, H), px = img.data, max = 0, lut = [];
+        for (var k = 3; k < px.length; k += 4) if (px[k] > max) max = px[k];
+        for (var v = 0; v < 256; v++) lut[v] = col(Math.min(1, v / (max || 1)));
+        for (var m = 0; m < px.length; m += 4) {
+          var a = px[m + 3]; if (a < 4) { px[m + 3] = 0; continue; }
+          var cc = lut[a]; px[m] = cc[0]; px[m + 1] = cc[1]; px[m + 2] = cc[2]; px[m + 3] = Math.round(70 + 150 * Math.pow(a / (max || 1), 0.7));
+        }
+        ctx.putImageData(img, 0, 0);
+        // Fold line.
+        ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, d.fold); ctx.lineTo(W, d.fold); ctx.stroke();
+        ctx.font = '600 13px Inter, system-ui, sans-serif'; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText('Average fold', 12, d.fold - 8);
+      }
+    })();
+  </script>
+</App>

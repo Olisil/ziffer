@@ -1,0 +1,20 @@
+---
+import { SignUp } from '@clerk/astro/components';
+import App from '../../layouts/App.astro';
+import Logo from '../../components/Logo.astro';
+import { url } from '../../lib/server';
+import { isDevUser } from '../../lib/page';
+if (isDevUser()) return Astro.redirect(url(''));
+---
+<App title="Create account">
+  <header class="z-app-header">
+    <a class="z-logo" href="/" aria-label="Ziffer home"><Logo id="auth" height={26} /></a>
+    <div class="z-spacer"></div>
+    <button class="z-toggle" type="button" data-theme-toggle aria-label="Switch between light and dark mode">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5" /><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor" /></svg>
+    </button>
+  </header>
+  <main class="z-auth">
+    <SignUp routing="path" path={url('sign-up')} signInUrl={url('sign-in')} forceRedirectUrl={url('')} />
+  </main>
+</App>

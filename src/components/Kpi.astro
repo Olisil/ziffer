@@ -1,0 +1,9 @@
+---
+interface Props { label: string; value: string; delta?: { text: string; down: boolean }; hint?: string }
+const { label, value, delta, hint } = Astro.props;
+---
+<div class="z-card">
+  <div class="z-kpi-label" title={hint}>{label}</div>
+  <div class="z-kpi-value">{value}</div>
+  {delta && <div class:list={['z-kpi-delta', { down: delta.down }]}>{delta.text}</div>}
+</div>

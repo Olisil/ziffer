@@ -1,0 +1,16 @@
+{
+  // Ziffer app on Webflow Cloud. Webflow Cloud provisions these resources and assigns their IDs on deploy.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ziffer",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Projects, environments, sessions, pageviews and clicks.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "ziffer", "database_id": "0", "migrations_dir": "migrations" }
+  ],
+  // Astro sessions (the binding must be called SESSION).
+  "kv_namespaces": [{ "binding": "SESSION" }],
+  // Reserved for session recordings (rrweb chunks) in the next phase.
+  "r2_buckets": [{ "binding": "RECORDINGS", "bucket_name": "ziffer-recordings" }],
+  "observability": { "enabled": true }
+}

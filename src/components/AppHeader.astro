@@ -1,0 +1,79 @@
+---
+import { UserButton } from '@clerk/astro/components';
+import Logo from './Logo.astro';
+import { url, type Environment, type Project } from '../lib/server';
+
+interface Props {
+  projects: Project[];
+  project?: Project;
+  environments?: Environment[];
+  env?: Environment;
+  tab?: 'dashboard' | 'heatmaps' | 'sessions' | 'settings';
+  devUser?: boolean;
+}
+const { projects, project, environments = [], env, tab, devUser = false } = Astro.props;
+const base = env ? url(`e/${env.id}`) : '';
+const range = Astro.url.searchParams.get('range');
+const q = range ? `?range=${range}` : '';
+const tabs = env
+  ? (env.kind === 'web'
+      ? [['dashboard', 'Dashboard', ''], ['sessions', 'Sessions', '/sessions'], ['heatmaps', 'Heatmaps', '/heatmaps'], ['settings', 'Settings', '/settings']]
+      : [['dashboard', 'Dashboard', ''], ['settings', 'Settings', '/settings']])
+  : [];
+const kindLabel = (k: string) => (k === 'web' ? 'Web' : 'Virtual tour');
+const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
+---
+<header class="z-app-header">
+  <a class="z-logo" href={url('')} aria-label="Ziffer home">
+    <Logo id="app-header" height={26} class="z-logo-full" />
+    <Logo id="app-header-mark" height={26} symbolOnly class="z-logo-mark" />
+  </a>
+  {project && (
+    <>
+      <div class="z-divider" aria-hidden="true"></div>
+      <details class="z-scope project">
+        <summary><span class="z-avatar-sq">{initial(project.name)}</span>{project.name}</summary>
+        <div class="z-scope-menu" role="menu">
+          <div class="z-menu-label">Projects</div>
+          {projects.map((p) => (
+            <a href={url(`p/${p.id}`)} aria-current={p.id === project.id ? 'true' : undefined}><span class="z-avatar-sq">{initial(p.name)}</span>{p.name}</a>
+          ))}
+          <div class="z-menu-sep"></div>
+          <a href={url('new')}>+ New project</a>
+        </div>
+      </details>
+    </>
+  )}
+  {env && (
+    <details class="z-scope env">
+      <summary><span class={`z-dot ${env.kind}`}></span>{env.name} · {kindLabel(env.kind)}</summary>
+      <div class="z-scope-menu" role="menu">
+        <div class="z-menu-label">Environments in {project?.name}</div>
+        {environments.map((e) => (
+          <a href={url(`e/${e.id}${q}`)} aria-current={e.id === env.id ? 'true' : undefined}><span class={`z-dot ${e.kind}`}></span>{e.name} · {kindLabel(e.kind)}</a>
+        ))}
+        <div class="z-menu-sep"></div>
+        <a href={url(`p/${env.project_id}/environments/new`)}>+ Add environment</a>
+      </div>
+    </details>
+  )}
+  {tabs.length > 0 && (
+    <nav class="z-tabs" aria-label="Views">
+      {tabs.map(([key, label, path]) => (
+        <a class="z-tab" href={`${base}${path}${key === 'settings' ? '' : q}`} aria-current={tab === key ? 'page' : undefined}>{label}</a>
+      ))}
+    </nav>
+  )}
+  <div class="z-spacer"></div>
+  <button class="z-toggle" type="button" data-theme-toggle aria-label="Switch between light and dark mode">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5" /><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor" /></svg>
+  </button>
+  {devUser ? <span class="z-chip" title="Local development user">dev</span> : <UserButton afterSignOutUrl={url('sign-in')} />}
+</header>
+{tabs.length > 0 && (
+  <nav class="z-mobile-tabs" aria-label="Views">
+    {tabs.map(([key, label, path]) => (
+      <a class="z-tab" href={`${base}${path}${key === 'settings' ? '' : q}`} aria-current={tab === key ? 'page' : undefined}>{label}</a>
+    ))}
+  </nav>
+)}

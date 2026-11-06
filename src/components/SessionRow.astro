@@ -1,0 +1,18 @@
+---
+import { fmt } from '../lib/page';
+import { url } from '../lib/server';
+import type { SessionRow } from '../lib/stats';
+interface Props { s: SessionRow; envId: string }
+const { s, envId } = Astro.props;
+const title = s.journey || s.entry_path || '/';
+const meta = [fmt.dur(s.duration), `${s.pageviews} ${s.pageviews === 1 ? 'page' : 'pages'}`, fmt.device(s.device), s.country, s.referrer && `from ${s.referrer}`].filter(Boolean).join(' · ');
+---
+<a class="z-session" href={url(`e/${envId}/sessions/${s.id}`)}>
+  <span class="z-play" aria-hidden="true"></span>
+  <span class="z-session-body">
+    <span class="z-session-title" style="display:block">{title}</span>
+    <span class="z-session-meta">{meta}</span>
+  </span>
+  {s.rage > 0 && <span class="z-chip">{s.rage === 1 ? 'Rage click' : `${s.rage} rage clicks`}</span>}
+  <span class="z-time">{fmt.date(s.started)} {fmt.time(s.started)}</span>
+</a>

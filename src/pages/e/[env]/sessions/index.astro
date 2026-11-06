@@ -1,0 +1,42 @@
+---
+import App from '../../../../layouts/App.astro';
+import AppHeader from '../../../../components/AppHeader.astro';
+import TitleRow from '../../../../components/TitleRow.astro';
+import SessionRow from '../../../../components/SessionRow.astro';
+import { loadEnvPage } from '../../../../lib/page';
+import { rangeOf } from '../../../../lib/server';
+import { recentSessions } from '../../../../lib/stats';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser } = ctx;
+if (env.kind !== 'web') return Astro.redirect(Astro.url.pathname.replace(/\/sessions.*$/, ''));
+const r = rangeOf(Astro.url);
+const page = Math.max(0, Number(Astro.url.searchParams.get('page') || 0) | 0);
+const PER = 50;
+const rows = await recentSessions(env.id, r.from, r.to, PER + 1, page * PER);
+const more = rows.length > PER;
+const pageLink = (n: number) => { const u = new URL(Astro.url); u.searchParams.set('page', String(n)); return u.pathname + u.search; };
+---
+<App title={`${env.name} · Sessions`}>
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} />
+  <main class="z-main">
+    <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} title="Sessions" range={r.key} />
+    <section class="z-card">
+      <div class="z-card-head">
+        <span class="z-card-title">Visits, newest first</span>
+        <span class="z-card-hint">Journeys and clicks today · full screen replays arrive with session recording</span>
+      </div>
+      <div class="z-list">
+        {rows.length === 0 && <p class="muted" style="margin:0;font-size:13px">No sessions in this period.</p>}
+        {rows.slice(0, PER).map((s) => <SessionRow s={s} envId={env.id} />)}
+      </div>
+      {(page > 0 || more) && (
+        <div style="display:flex;gap:8px;margin-top:16px">
+          {page > 0 && <a class="z-btn z-btn-secondary" href={pageLink(page - 1)}>Newer</a>}
+          {more && <a class="z-btn z-btn-secondary" href={pageLink(page + 1)}>Older</a>}
+        </div>
+      )}
+    </section>
+  </main>
+</App>

@@ -1,0 +1,9 @@
+---
+import { db, ownerId, url } from '../../../lib/server';
+const owner = ownerId(Astro);
+if (!owner) return Astro.redirect(url('sign-in'));
+const first = await db()
+  .prepare('SELECT e.id FROM environments e JOIN projects p ON p.id = e.project_id WHERE p.id = ? AND p.owner_id = ? ORDER BY e.created LIMIT 1')
+  .bind(Astro.params.project, owner).first<{ id: string }>();
+return Astro.redirect(first ? url(`e/${first.id}`) : url(`p/${Astro.params.project}/environments/new`));
+---

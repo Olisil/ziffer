@@ -1,0 +1,46 @@
+---
+import App from '../layouts/App.astro';
+import AppHeader from '../components/AppHeader.astro';
+import EnvironmentFields from '../components/EnvironmentFields.astro';
+import { db, id, listProjects, ownerId, url } from '../lib/server';
+import { createEnvironment, readEnvForm } from '../lib/forms';
+import { isDevUser } from '../lib/page';
+
+const owner = ownerId(Astro);
+if (!owner) return Astro.redirect(url('sign-in'));
+let error = '';
+let raw: Record<string, string> = { project: '' };
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const projectName = String(form.get('project') || '').trim().slice(0, 80);
+  const r = readEnvForm(form);
+  raw = { ...r.raw, project: projectName };
+  if (!projectName) error = 'Give the project a name.';
+  else if (r.error) error = r.error;
+  else {
+    const pid = id(10);
+    await db().prepare('INSERT INTO projects (id, owner_id, name, created) VALUES (?, ?, ?, ?)').bind(pid, owner, projectName, Date.now()).run();
+    const envId = await createEnvironment(pid, r.value!);
+    return Astro.redirect(url(`e/${envId}/settings?welcome=1`));
+  }
+}
+const projects = await listProjects(owner);
+---
+<App title="New project">
+  <AppHeader projects={projects} devUser={isDevUser()} />
+  <main class="z-main" style="max-width:720px">
+    <div>
+      <div class="z-eyebrow">{projects.length ? 'New project' : 'Welcome to Ziffer'}</div>
+      <h1 class="z-h1">{projects.length ? 'Create a project' : 'Set up your first project'}</h1>
+      <p class="muted" style="margin:8px 0 0">A project groups the places you measure — a website, a virtual tour, later games and VR. You can add more environments any time.</p>
+    </div>
+    <form method="post" class="z-card z-form" style="max-width:none">
+      {error && <p role="alert" style="margin:0;color:#e5484d">{error}</p>}
+      <label class="z-field">Project name <small>Usually the client or brand, e.g. Nassau.</small>
+        <input class="z-input" name="project" required maxlength="80" placeholder="Nassau" value={raw.project} autofocus />
+      </label>
+      <EnvironmentFields values={raw} />
+      <div><button class="z-btn z-btn-primary" type="submit">Create project</button></div>
+    </form>
+  </main>
+</App>

@@ -1,0 +1,7 @@
+---
+import { firstEnvironment, ownerId, url } from '../lib/server';
+const owner = ownerId(Astro);
+if (!owner) return Astro.redirect(url('sign-in'));
+const first = await firstEnvironment(owner);
+return Astro.redirect(first ? url(`e/${first.id}`) : url('new'));
+---

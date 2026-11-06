@@ -1,0 +1,24 @@
+---
+interface Props { values?: { kind?: string; name?: string; domain?: string } }
+const v = Astro.props.values || {};
+const kind = v.kind || 'web';
+---
+<fieldset class="z-field" style="border:0;padding:0;margin:0">
+  <legend style="margin-bottom:6px">Environment</legend>
+  <div class="z-radio-cards">
+    <label class="z-radio-card">
+      <input type="radio" name="kind" value="web" checked={kind === 'web'} />
+      <span><b>Web</b><span class="muted">A website with the Ziffer snippet — page views, heatmaps, sessions.</span></span>
+    </label>
+    <label class="z-radio-card">
+      <input type="radio" name="kind" value="tour" checked={kind === 'tour'} />
+      <span><b>Virtual tour</b><span class="muted">An Intus tour — rooms, walking paths, floor-plan heatmaps.</span></span>
+    </label>
+  </div>
+</fieldset>
+<label class="z-field">Name
+  <input class="z-input" name="name" required maxlength="80" placeholder="nassau.se, or Storgatan 12" value={v.name || ''} />
+</label>
+<label class="z-field">Domain <small>For Web: the site's address. www and subdomains are included.</small>
+  <input class="z-input" name="domain" maxlength="200" placeholder="nassau.se" value={v.domain || ''} />
+</label>

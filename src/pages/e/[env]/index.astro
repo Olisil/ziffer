@@ -1,0 +1,105 @@
+---
+import App from '../../../layouts/App.astro';
+import AppHeader from '../../../components/AppHeader.astro';
+import TitleRow from '../../../components/TitleRow.astro';
+import Kpi from '../../../components/Kpi.astro';
+import Bars from '../../../components/Bars.astro';
+import SessionRow from '../../../components/SessionRow.astro';
+import InstallSnippet from '../../../components/InstallSnippet.astro';
+import { loadEnvPage, fmt } from '../../../lib/page';
+import { rangeOf, url } from '../../../lib/server';
+import { dashboard } from '../../../lib/stats';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser } = ctx;
+const r = rangeOf(Astro.url);
+const data = env.kind === 'web' ? await dashboard(env.id, r.from, r.to, r.prevFrom, r.days) : null;
+const empty = data && data.now.sessions === 0 && data.prev.sessions === 0;
+const q = `?range=${r.key}`;
+const pct = (n: number, total: number) => (total ? Math.round((n / total) * 100) : 0);
+const deviceTotal = data ? data.devices.reduce((a, d) => a + d.n, 0) : 0;
+const refTotal = data ? data.referrers.reduce((a, d) => a + d.n, 0) : 0;
+---
+<App title={`${env.name} · Dashboard`}>
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="dashboard" devUser={devUser} />
+  <main class="z-main">
+    <TitleRow eyebrow={`${project.name} · ${env.name} · ${env.kind === 'web' ? 'Web' : 'Virtual tour'}`} title="Dashboard" range={r.key} showRange={env.kind === 'web'}>
+      {env.kind === 'web' && <a class="z-btn z-btn-secondary" href={url(`e/${env.id}/settings`)}>Install snippet</a>}
+    </TitleRow>
+
+    {env.kind === 'tour' && (
+      <section class="z-empty">
+        <span class="z-chip">Virtual tour environment</span>
+        <h2 style="font-size:20px">Connect the Intus tour statistics</h2>
+        <p class="muted" style="margin:0;max-width:640px">
+          This environment will show tour visits, time per room, walking paths and floor-plan heatmaps. The data already lives in the
+          <b>intus-stats</b> service; the next step links it here so you sign in once and see tours next to websites.
+        </p>
+      </section>
+    )}
+
+    {data && empty && (
+      <section class="z-card">
+        <div class="z-card-head"><span class="z-card-title">Waiting for the first visit on {env.domain}</span><span class="z-card-hint">Usually seconds after you publish</span></div>
+        <InstallSnippet siteKey={env.site_key} domain={env.domain} />
+      </section>
+    )}
+
+    {data && (
+      <>
+        <section class="z-grid z-kpis" aria-label="Key figures">
+          <Kpi label="Visitors" value={fmt.int(data.now.visitors)} delta={fmt.delta(data.now.visitors, data.prev.visitors)} hint="Unique per day, counted without cookies" />
+          <Kpi label="Avg. engagement" value={fmt.dur(data.now.engagement)} delta={fmt.delta(data.now.engagement, data.prev.engagement, 'dur')} hint="Time the tab was visible, per session" />
+          <Kpi label="Scroll depth" value={fmt.pct(data.now.scroll)} delta={fmt.delta(data.now.scroll, data.prev.scroll)} hint="Average of the deepest point reached per page view" />
+          <Kpi label="Rage clicks" value={fmt.int(data.now.rage)} delta={fmt.delta(data.now.rage, data.prev.rage, 'abs')} hint="Three or more quick clicks on the same spot" />
+        </section>
+
+        <section class="z-grid z-row-2-1">
+          <div class="z-card">
+            <div class="z-card-head"><span class="z-card-title">Sessions</span><span class="z-card-hint">{fmt.int(data.now.sessions)} sessions · {fmt.int(data.now.pageviews)} page views</span></div>
+            <Bars counts={data.counts} from={r.from} bucket={data.bucket} label="Sessions" />
+          </div>
+          <div class="z-card">
+            <div class="z-card-head"><span class="z-card-title">Top pages</span><span class="z-card-hint">Views · scroll</span></div>
+            <div class="z-list">
+              {data.pages.length === 0 && <p class="muted" style="margin:0;font-size:13px">No page views yet.</p>}
+              {data.pages.map((p) => (
+                <a class="z-list-row" href={url(`e/${env.id}/heatmaps${q}&page=${encodeURIComponent(p.path)}`)} title="Open heatmap">
+                  <span class="grow">{p.path}</span><span class="num">{fmt.int(p.n)}</span>
+                  <span class="z-meter" title={`Avg. scroll ${fmt.pct(p.scroll)}`}><i style={`width:${Math.round(p.scroll)}%`}></i></span>
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section class="z-grid z-row-2-1">
+          <div class="z-card">
+            <div class="z-card-head"><span class="z-card-title">Recent sessions</span><a class="z-card-hint" href={url(`e/${env.id}/sessions${q}`)}>View all</a></div>
+            <div class="z-list">
+              {data.recent.length === 0 && <p class="muted" style="margin:0;font-size:13px">Sessions appear here as visitors arrive.</p>}
+              {data.recent.map((s) => <SessionRow s={s} envId={env.id} />)}
+            </div>
+          </div>
+          <div class="z-grid" style="align-content:start">
+            <div class="z-card">
+              <div class="z-card-head"><span class="z-card-title">Sources</span></div>
+              <div class="z-list">
+                {data.referrers.length === 0 && <p class="muted" style="margin:0;font-size:13px">—</p>}
+                {data.referrers.map((x) => <div class="z-list-row"><span class="grow">{x.referrer || 'Direct'}</span><span class="num">{pct(x.n, refTotal)}%</span></div>)}
+              </div>
+            </div>
+            <div class="z-card">
+              <div class="z-card-head"><span class="z-card-title">Devices</span></div>
+              <div class="z-list">
+                {data.devices.length === 0 && <p class="muted" style="margin:0;font-size:13px">—</p>}
+                {data.devices.map((x) => <div class="z-list-row"><span class="grow">{fmt.device(x.device)}</span><span class="z-meter"><i style={`width:${pct(x.n, deviceTotal)}%`}></i></span><span class="num">{pct(x.n, deviceTotal)}%</span></div>)}
+              </div>
+            </div>
+          </div>
+        </section>
+      </>
+    )}
+  </main>
+</App>

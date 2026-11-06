@@ -1,0 +1,19 @@
+---
+interface Props { counts: number[]; from: number; bucket: number; label: string }
+const { counts, from, bucket, label } = Astro.props;
+const max = Math.max(1, ...counts);
+const hourly = bucket < 864e5;
+const fmt = (i: number) => {
+  const d = new Date(from + i * bucket);
+  return hourly
+    ? d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' })
+    : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/Stockholm' });
+};
+const total = counts.reduce((a, b) => a + b, 0);
+---
+<div class="z-bars" role="img" aria-label={`${label}: ${total} in total`}>
+  {counts.map((n, i) => (
+    <div class:list={['z-bar', { now: i === counts.length - 1 }]} style={`height:${Math.max(1.5, (n / max) * 100)}%`} title={`${fmt(i)} · ${n}`}></div>
+  ))}
+</div>
+<div class="z-bars-axis"><span>{fmt(0)}</span><span>{fmt(Math.floor(counts.length / 2))}</span><span>{hourly ? 'Now' : 'Today'}</span></div>

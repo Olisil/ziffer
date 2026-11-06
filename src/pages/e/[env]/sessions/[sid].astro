@@ -1,0 +1,62 @@
+---
+import App from '../../../../layouts/App.astro';
+import AppHeader from '../../../../components/AppHeader.astro';
+import Kpi from '../../../../components/Kpi.astro';
+import { loadEnvPage, fmt } from '../../../../lib/page';
+import { url } from '../../../../lib/server';
+import { sessionDetail } from '../../../../lib/stats';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser } = ctx;
+const detail = await sessionDetail(env.id, String(Astro.params.sid));
+if (!detail) return new Response('Not found', { status: 404 });
+const { s, pages, clicks } = detail;
+// One timeline: page views with their clicks underneath.
+const items = [
+  ...pages.map((p) => ({ kind: 'page' as const, ts: p.ts, p })),
+  ...clicks.map((c) => ({ kind: 'click' as const, ts: c.ts, c })),
+].sort((a, b) => a.ts - b.ts);
+const offset = (ts: number) => fmt.dur((ts - s.started) / 1000);
+---
+<App title="Session">
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} />
+  <main class="z-main">
+    <div class="z-title-row">
+      <div>
+        <div class="z-eyebrow"><a href={url(`e/${env.id}/sessions`)} style="text-decoration:none">← Sessions</a> · {fmt.date(s.started)} {fmt.time(s.started)}</div>
+        <h1 class="z-h1">{s.entry_path}{s.exit_path && s.exit_path !== s.entry_path ? ` → ${s.exit_path}` : ''}</h1>
+      </div>
+    </div>
+    <section class="z-grid z-kpis">
+      <Kpi label="Engaged time" value={fmt.dur(s.duration)} />
+      <Kpi label="Pages" value={String(s.pageviews)} />
+      <Kpi label="Device" value={`${fmt.device(s.device)}${s.country ? ` · ${s.country}` : ''}`} />
+      <Kpi label="Source" value={s.referrer || 'Direct'} />
+    </section>
+    <section class="z-grid z-row-2-1">
+      <div class="z-card">
+        <div class="z-card-head"><span class="z-card-title">Timeline</span><span class="z-card-hint">{clicks.length} clicks · {s.rage} rage</span></div>
+        <ol class="z-timeline">
+          {items.map((it) => it.kind === 'page' ? (
+            <li>
+              <b>{it.p.path}</b> <span class="muted">· {offset(it.ts)}</span><br />
+              <span class="muted">{it.p.title || 'Untitled'} · {fmt.dur(it.p.duration)} on page · scrolled {fmt.pct(it.p.scroll)}</span>
+            </li>
+          ) : (
+            <li class:list={['click', { rage: it.c.rage }]}>
+              <span>{it.c.rage ? 'Rage click' : 'Click'}</span> <span class="muted">on <code>{it.c.sel || 'page'}</code> · {offset(it.ts)}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div class="z-card" style="align-self:start">
+        <div class="z-card-head"><span class="z-card-title">Replay</span></div>
+        <p class="muted" style="margin:0 0 12px;font-size:13px">Screen replays come with session recording (next phase). Until then the timeline shows the journey, and each page opens as a heatmap.</p>
+        <div class="z-list">
+          {pages.map((p) => <a class="z-list-row" href={url(`e/${env.id}/heatmaps?page=${encodeURIComponent(p.path)}&device=${s.device === 'mobile' ? 'mobile' : 'desktop'}`)}><span class="grow">{p.path}</span><span class="num">Heatmap →</span></a>)}
+        </div>
+      </div>
+    </section>
+  </main>
+</App>
