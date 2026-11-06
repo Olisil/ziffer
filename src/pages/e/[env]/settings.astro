@@ -4,6 +4,7 @@ import AppHeader from '../../../components/AppHeader.astro';
 import InstallSnippet from '../../../components/InstallSnippet.astro';
 import { loadEnvPage } from '../../../lib/page';
 import { cleanDomain, db, url } from '../../../lib/server';
+import { bucket } from '../../../lib/snapshots';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
@@ -26,7 +27,10 @@ if (Astro.request.method === 'POST') {
   } else if (action === 'delete') {
     if (String(form.get('confirm') || '').trim() !== env.name) error = `Type “${env.name}” to confirm.`;
     else {
+      const snaps = await db().prepare('SELECT r2_key FROM snapshots WHERE env_id = ?').bind(env.id).all<{ r2_key: string }>();
+      if (snaps.results.length) await bucket()?.delete(snaps.results.map((r) => r.r2_key));
       await db().batch([
+        db().prepare('DELETE FROM snapshots WHERE env_id = ?').bind(env.id),
         db().prepare('DELETE FROM clicks WHERE env_id = ?').bind(env.id),
         db().prepare('DELETE FROM pageviews WHERE env_id = ?').bind(env.id),
         db().prepare('DELETE FROM sessions WHERE env_id = ?').bind(env.id),
@@ -76,7 +80,8 @@ if (Astro.url.searchParams.get('saved')) notice = 'saved';
       <div class="z-card-head"><span class="z-card-title">Privacy</span></div>
       <ul class="muted" style="margin:0;padding-left:18px;font-size:13px;line-height:1.7">
         <li>No cookies or local identifiers that survive the tab. Visitors are counted with a hash that changes every day.</li>
-        <li>No text, form input or query strings are recorded — only paths, click positions and short element selectors.</li>
+        <li>No form input, typed text or query strings are recorded — only paths, click positions and short element selectors.</li>
+        <li>For heatmaps, a visitor’s browser occasionally sends a copy of the page layout (at most every few days per page). Scripts and form values are removed first; add <code>data-ziffer-mask</code> to any element that should be blanked out.</li>
         <li>Data stays in this Webflow Cloud app’s storage; moving analytics to EU-only storage is planned.</li>
       </ul>
     </section>
@@ -85,7 +90,7 @@ if (Astro.url.searchParams.get('saved')) notice = 'saved';
       <div class="z-card-head"><span class="z-card-title">Delete environment</span></div>
       <form method="post" class="z-form">
         <input type="hidden" name="action" value="delete" />
-        <p class="muted" style="margin:0;font-size:13px">Removes {env.name} and all of its sessions, page views and clicks. This can’t be undone.</p>
+        <p class="muted" style="margin:0;font-size:13px">Removes {env.name} and all of its sessions, page views, clicks and page snapshots. This can’t be undone.</p>
         <label class="z-field"><span>Type <b>{env.name}</b> to confirm</span><input class="z-input" name="confirm" autocomplete="off" /></label>
         <div><button class="z-btn z-btn-danger" type="submit">Delete environment</button></div>
       </form>

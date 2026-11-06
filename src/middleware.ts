@@ -4,7 +4,7 @@ import type { MiddlewareHandler } from 'astro';
 import { BASE } from './lib/server';
 
 // Public, cookieless tracker endpoints never touch Clerk.
-const isTracker = (p: string) => p === `${BASE}/z.js` || p === `${BASE}/api/collect` || p === `${BASE}/favicon.svg`;
+const isTracker = (p: string) => p === `${BASE}/z.js` || p === `${BASE}/api/collect` || p === `${BASE}/api/snap` || p === `${BASE}/favicon.svg`;
 const PUBLIC = [`${BASE}/sign-in`, `${BASE}/sign-up`];
 const isPublic = (p: string) => PUBLIC.some((x) => p === x || p.startsWith(x + '/'));
 

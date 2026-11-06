@@ -5,6 +5,7 @@ import TitleRow from '../../../components/TitleRow.astro';
 import { loadEnvPage, fmt } from '../../../lib/page';
 import { rangeOf, url } from '../../../lib/server';
 import { heatmapData, heatmapPages } from '../../../lib/stats';
+import { getSnapshot } from '../../../lib/snapshots';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
@@ -17,20 +18,24 @@ const path = sp.get('page') || pages[0]?.path || '/';
 const device = sp.get('device') === 'mobile' ? 'mobile' : 'desktop';
 const mode = sp.get('mode') === 'scroll' ? 'scroll' : 'clicks';
 const data = await heatmapData(env.id, path, device, r.from, r.to);
-const width = data.geo?.dw || (device === 'mobile' ? 390 : 1280);
-const height = Math.min(data.geo?.dh || (device === 'mobile' ? 2400 : 3000), 20000);
-const fold = data.geo?.vh || (device === 'mobile' ? 760 : 820);
+const snap = await getSnapshot(env.id, path, device).catch(() => null);
+// Draw on the snapshot's geometry when there is one, otherwise on the average of recorded page views.
+const width = snap?.dw || data.geo?.dw || (device === 'mobile' ? 390 : 1280);
+const height = Math.min(snap?.dh || data.geo?.dh || (device === 'mobile' ? 2400 : 3000), 30000);
+const fold = snap?.vh || data.geo?.vh || (device === 'mobile' ? 760 : 820);
+const viewW = snap?.vw || width;
+const viewH = Math.min(snap?.vh || fold, 1000);
 const link = (patch: Record<string, string>) => {
   const u = new URL(Astro.url);
   for (const [k, v] of Object.entries(patch)) u.searchParams.set(k, v);
   return u.pathname + u.search;
 };
 const payload = JSON.stringify({
-  mode, width, height, fold, reach: data.reach,
+  mode, width, height, fold, reach: data.reach, viewW, viewH,
+  snapshot: snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(path)}&device=${device}&v=${snap.ts}`) : null,
   clicks: data.clicks.map((c) => [Math.round(c.xr * width), Math.round(c.dh ? (c.y * height) / c.dh : c.y), c.rage]),
 }).replace(/</g, '\\u003c');
 const rageCount = data.clicks.filter((c) => c.rage).length;
-const pageUrl = env.domain ? `https://${env.domain}${path}` : '';
 ---
 <App title={`${env.name} · Heatmaps`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="heatmaps" devUser={devUser} />
@@ -74,28 +79,42 @@ const pageUrl = env.domain ? `https://${env.domain}${path}` : '';
         <p class="muted" style="margin:0;font-size:13px">No {device} views of this page in the period yet.</p>
       ) : (
         <div class="z-heat-wrap" id="hm-wrap">
-          <div class="z-heat-stage" id="hm-stage" style={`width:${width}px;height:${height}px`}>
-            <div class="z-heat-blank" aria-hidden="true"></div>
-            {pageUrl && <iframe src={pageUrl} title={`Preview of ${path}`} loading="lazy" referrerpolicy="no-referrer" sandbox="allow-same-origin" style={`width:${width}px;height:${height}px`}></iframe>}
-            <canvas id="hm-canvas" width={width} height={height} style={`width:${width}px;height:${height}px`}></canvas>
-          </div>
+          {snap ? (
+            <div class="z-heat-stage" id="hm-stage" style={`width:${viewW}px;height:${viewH}px`}>
+              <div class="z-heat-blank" aria-hidden="true"></div>
+              <iframe id="hm-frame" title={`Snapshot of ${path} with heat overlay`} sandbox="" referrerpolicy="no-referrer" style={`width:${viewW}px;height:${viewH}px;background:#fff`}></iframe>
+            </div>
+          ) : (
+            <div class="z-heat-stage" id="hm-stage" style={`width:${width}px;height:${height}px`}>
+              <div class="z-heat-blank" aria-hidden="true"></div>
+              <canvas id="hm-canvas" width={width} height={height} style={`width:${width}px;height:${height}px`}></canvas>
+            </div>
+          )}
         </div>
       )}
-      <p class="muted" style="margin:12px 0 0;font-size:12px">The page is shown live from {env.domain}. If it stays blank, the site blocks framing — the heat layer is still correct, on a neutral background. Scripts are disabled in the preview, so it doesn’t count as a visit.</p>
+      <p class="muted" style="margin:12px 0 0;font-size:12px">
+        {snap
+          ? `Page snapshot from ${fmt.date(snap.ts)}, ${snap.vw}×${snap.vh}. Scroll inside the frame. Snapshots refresh every few days as visitors arrive.`
+          : 'No page snapshot yet. The tracker captures the page layout on the next visit to this page, then the heat is drawn on the real page. Until then it’s shown on a neutral background.'}
+      </p>
     </section>
     <script type="application/json" id="hm-data" set:html={payload}></script>
   </main>
   <script is:inline>
     (function () {
-      var el = document.getElementById('hm-data'), cv = document.getElementById('hm-canvas');
-      if (!el || !cv) return;
-      var d = JSON.parse(el.textContent), W = d.width, H = d.height, ctx = cv.getContext('2d');
-      var wrap = document.getElementById('hm-wrap'), stage = document.getElementById('hm-stage');
+      var el = document.getElementById('hm-data'), stage = document.getElementById('hm-stage');
+      if (!el || !stage) return;
+      var d = JSON.parse(el.textContent), W = d.width, H = d.height;
+      var frame = document.getElementById('hm-frame'), cv = document.getElementById('hm-canvas');
+      if (!cv) { cv = document.createElement('canvas'); cv.width = W; cv.height = H; }
+      var ctx = cv.getContext('2d'), wrap = document.getElementById('hm-wrap');
+      var SW = frame ? d.viewW : W, SH = frame ? d.viewH : H;
       function fit() {
-        var s = Math.min(1, (wrap.clientWidth - 2) / W);
+        var s = Math.min(1, (wrap.clientWidth - 2) / SW);
         stage.style.transform = 'scale(' + s + ')';
-        stage.style.marginBottom = (H * s - H) + 'px';
-        stage.style.marginRight = (W * s - W) + 'px';
+        stage.style.marginBottom = (SH * s - SH) + 'px';
+        stage.style.marginRight = (SW * s - SW) + 'px';
+        stage.style.marginLeft = Math.max(0, (wrap.clientWidth - 2 - SW * s) / 2) + 'px'; // centre narrow (mobile) views
       }
       fit(); addEventListener('resize', fit);
       // Palette from the logo: blue → amber → coral.
@@ -142,6 +161,42 @@ const pageUrl = env.domain ? `https://${env.domain}${path}` : '';
         ctx.beginPath(); ctx.moveTo(0, d.fold); ctx.lineTo(W, d.fold); ctx.stroke();
         ctx.font = '600 13px Inter, system-ui, sans-serif'; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText('Average fold', 12, d.fold - 8);
       }
+      if (!frame || !d.snapshot) return;
+
+      // Render the stored snapshot in a fully sandboxed frame (no scripts, no same-origin access),
+      // with the heat layer baked in as an image at the document's own coordinates.
+      fetch(d.snapshot, { credentials: 'same-origin' }).then(function (r) { if (!r.ok) throw 0; return r.text(); }).then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var bad = doc.querySelectorAll('script, iframe, object, embed, frame, frameset, meta[http-equiv], link[rel=import], link[rel=preload], link[rel=prefetch], link[rel=modulepreload]');
+        for (var i = 0; i < bad.length; i++) bad[i].remove();
+        var bases = doc.querySelectorAll('base');
+        for (var b = 1; b < bases.length; b++) bases[b].remove();
+        if (bases[0] && !/^https:\/\//i.test(bases[0].getAttribute('href') || '')) bases[0].remove();
+        var all = doc.querySelectorAll('*');
+        for (var j = 0; j < all.length; j++) {
+          var at = all[j].attributes;
+          for (var k2 = at.length - 1; k2 >= 0; k2--) {
+            var n = at[k2].name, v = at[k2].value;
+            if (/^on/i.test(n) || (/^(href|src|action|formaction|xlink:href|srcdoc)$/i.test(n) && /^\s*(javascript|vbscript):/i.test(v)) || n === 'srcdoc') all[j].removeAttribute(n);
+          }
+        }
+        var head = doc.head || doc.documentElement;
+        var csp = doc.createElement('meta');
+        csp.setAttribute('http-equiv', 'Content-Security-Policy');
+        csp.setAttribute('content', "script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri https:");
+        head.insertBefore(csp, head.firstChild);
+        var st = doc.createElement('style');
+        st.textContent = 'a,button,input,select,textarea,label{pointer-events:none!important}html{scroll-behavior:auto!important}';
+        head.appendChild(st);
+        var heat = doc.createElement('img');
+        heat.setAttribute('alt', '');
+        heat.setAttribute('src', cv.toDataURL('image/png'));
+        heat.setAttribute('style', 'position:absolute!important;left:0!important;top:0!important;width:' + W + 'px!important;height:' + H + 'px!important;max-width:none!important;pointer-events:none!important;z-index:2147483647!important;opacity:1!important;transform:none!important;margin:0!important');
+        doc.documentElement.appendChild(heat);
+        frame.srcdoc = '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+      }).catch(function () {
+        frame.remove(); cv.style.cssText = 'position:absolute;left:0;top:0;width:' + SW + 'px'; stage.appendChild(cv);
+      });
     })();
   </script>
 </App>

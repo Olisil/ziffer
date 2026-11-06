@@ -1,4 +1,4 @@
-/*! Ziffer tracker — cookieless page views, engaged time, scroll depth and clicks. No text or form input is recorded. */
+/*! Ziffer tracker — cookieless page views, engaged time, scroll depth, clicks and occasional page-layout snapshots for heatmaps. Form input is never recorded. */
 (function (w, d) {
   if (w.__ziffer || w.top !== w.self || navigator.webdriver) return; // not inside Ziffer's heatmap preview iframes or bots
   var s = d.currentScript, key = s && s.getAttribute('data-site');
@@ -22,6 +22,85 @@
     q.push({ t: 'pv', id: pv.id, p: pv.path, ti: d.title.slice(0, 140), r: firstPv ? refHost() : '', vw: g.vw, vh: g.vh, dw: g.dw, dh: g.dh, ts: now });
     firstPv = false;
     onScroll(); flush();
+    whenSettled(maybeSnapshot);
+  }
+
+  /* ---- Page snapshot for heatmaps --------------------------------------------------------------
+     About once every few days per page, Ziffer asks the visitor's browser for a copy of the page
+     layout, so heatmaps can be drawn on the real page even when the site can't be framed.
+     Scripts, form values and anything marked data-ziffer-mask are removed before sending. */
+  var snapApi = new URL('api/snap', s.src).href;
+  function whenSettled(fn) {
+    var go = function () { setTimeout(function () { (w.requestIdleCallback || setTimeout)(fn, { timeout: 4000 }); }, 2500); };
+    if (d.readyState === 'complete') go(); else w.addEventListener('load', go, { once: true });
+  }
+  function maybeSnapshot() {
+    if (!pv || !w.fetch || !w.DOMParser) return;
+    var path = pv.path, g = dims(), flag = 'zf_snap:' + (g.vw < 768 ? 'm' : 'd') + path;
+    try { if (sessionStorage.getItem(flag)) return; sessionStorage.setItem(flag, '1'); } catch (e) {}
+    fetch(snapApi + '?k=' + encodeURIComponent(key) + '&p=' + encodeURIComponent(path) + '&vw=' + g.vw, { credentials: 'omit' })
+      .then(function (r) { return r.ok ? r.json() : { need: false }; })
+      .then(function (j) {
+        if (!j.need || !pv || pv.path !== path) return;
+        var html = snapshotHtml();
+        if (!html || html.length > 3e6) return;
+        var g2 = dims();
+        fetch(snapApi, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ k: key, p: path, vw: g2.vw, vh: g2.vh, dw: g2.dw, dh: g2.dh, html: html }) });
+      })['catch'](function () {});
+  }
+  function snapshotHtml() {
+    var live = d.documentElement, all = live.querySelectorAll('*'), i;
+    // Mark live elements so the clone can be matched up with computed state.
+    var canv = live.querySelectorAll('canvas'), sizes = [];
+    for (i = 0; i < canv.length; i++) { var rc = canv[i].getBoundingClientRect(); sizes.push([rc.width, rc.height]); }
+    var sheets = [];
+    for (i = 0; i < d.styleSheets.length; i++) {
+      var sh = d.styleSheets[i], own = sh.ownerNode;
+      // CSS injected through the CSSOM (CSS-in-JS) isn't in the markup, so copy its rules.
+      try { if (own && own.tagName === 'STYLE' && !own.textContent.trim() && sh.cssRules.length) sheets.push([i, Array.prototype.map.call(sh.cssRules, function (r) { return r.cssText; }).join('\n')]); } catch (e) {}
+    }
+    var c = live.cloneNode(true);
+    var drop = c.querySelectorAll('script, noscript, iframe, object, embed, template, link[rel=preload], link[rel=modulepreload], link[rel=prefetch], meta[http-equiv], base');
+    for (i = 0; i < drop.length; i++) {
+      var el = drop[i];
+      if (el.tagName === 'IFRAME' || el.tagName === 'OBJECT' || el.tagName === 'EMBED') {
+        var ph = d.createElement('div'); ph.setAttribute('style', (el.getAttribute('style') || '') + ';background:#d9d9d9;width:' + (el.getAttribute('width') ? el.getAttribute('width') + 'px' : '100%') + ';height:' + (el.getAttribute('height') ? el.getAttribute('height') + 'px' : '100%'));
+        ph.className = el.className || '';
+        el.parentNode.replaceChild(ph, el);
+      } else el.parentNode && el.parentNode.removeChild(el);
+    }
+    var cc = c.querySelectorAll('canvas');
+    for (i = 0; i < cc.length; i++) { var cd = d.createElement('div'); cd.className = cc[i].className || ''; cd.setAttribute('style', (cc[i].getAttribute('style') || '') + ';background:#cfcfcf;width:' + Math.round(sizes[i] ? sizes[i][0] : 0) + 'px;height:' + Math.round(sizes[i] ? sizes[i][1] : 0) + 'px'); cc[i].parentNode.replaceChild(cd, cc[i]); }
+    var els = c.querySelectorAll('*');
+    for (i = 0; i < els.length; i++) {
+      var e = els[i], t = e.tagName;
+      for (var a = e.attributes.length - 1; a >= 0; a--) {
+        var n = e.attributes[a].name, v = e.attributes[a].value;
+        if (/^on/i.test(n) || (/^(href|src|action|formaction|xlink:href)$/i.test(n) && /^\s*javascript:/i.test(v))) e.removeAttribute(n);
+      }
+      if (t === 'INPUT') { e.removeAttribute('value'); e.removeAttribute('checked'); }
+      if (t === 'TEXTAREA') e.textContent = '';
+      if (t === 'OPTION') e.removeAttribute('selected');
+      if (t === 'VIDEO' || t === 'AUDIO') { e.removeAttribute('autoplay'); }
+      if (t === 'IMG' || t === 'SOURCE') {
+        e.setAttribute('loading', 'eager');
+        var ds = e.getAttribute('data-src'), dss = e.getAttribute('data-srcset');
+        if (ds && !/^(https?:|\/)/i.test(e.getAttribute('src') || '')) e.setAttribute('src', ds);
+        if (dss && !e.getAttribute('srcset')) e.setAttribute('srcset', dss);
+      }
+      // Scroll-in animations (Webflow interactions, AOS) leave unseen content invisible — show it in its final state.
+      if (e.hasAttribute('data-w-id') && e.style) { e.style.removeProperty('opacity'); e.style.removeProperty('transform'); e.style.removeProperty('visibility'); e.style.removeProperty('filter'); }
+      if (e.hasAttribute('data-aos')) e.classList.add('aos-animate');
+      if (e.hasAttribute('data-ziffer-mask')) { e.textContent = ''; e.setAttribute('style', (e.getAttribute('style') || '') + ';background:#bbb'); }
+    }
+    var head = c.querySelector('head');
+    if (head) {
+      for (i = 0; i < sheets.length; i++) { var st = d.createElement('style'); st.textContent = sheets[i][1]; head.appendChild(st); }
+      var base = d.createElement('base'); base.setAttribute('href', location.href.split('#')[0].split('?')[0]); head.insertBefore(base, head.firstChild);
+    }
+    var dt = d.doctype ? '<!DOCTYPE ' + d.doctype.name + '>' : '<!DOCTYPE html>';
+    return dt + c.outerHTML;
   }
   function sel(el) {
     for (var parts = [], n = 0; el && el.nodeType === 1 && n < 4; n++, el = el.parentElement) {

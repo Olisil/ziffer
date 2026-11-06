@@ -1,28 +1,10 @@
 import type { APIRoute } from 'astro';
 import { db } from '../../lib/server';
+import { envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 
 const MAX_BODY = 64 * 1024;
 const MAX_EVENTS = 200;
 const ID_RE = /^[a-f0-9]{24}$/;
-
-type Env = { id: string; domain: string | null; kind: string };
-const envCache = new Map<string, { env: Env | null; at: number }>();
-
-async function envForKey(key: string): Promise<Env | null> {
-  const hit = envCache.get(key);
-  if (hit && Date.now() - hit.at < 60_000) return hit.env;
-  const env = await db().prepare('SELECT id, domain, kind FROM environments WHERE site_key = ?').bind(key).first<Env>();
-  envCache.set(key, { env, at: Date.now() });
-  return env;
-}
-
-function originAllowed(origin: string | null, domain: string | null) {
-  if (!origin || !domain) return false;
-  try {
-    const h = new URL(origin).hostname.toLowerCase();
-    return h === domain || h.endsWith(`.${domain}`);
-  } catch { return false; }
-}
 
 async function dailySalt() {
   const day = new Date().toISOString().slice(0, 10);
@@ -45,8 +27,6 @@ async function visitorHash(salt: string, ip: string, ua: string, env: string) {
 
 const deviceOf = (vw: number) => (vw < 768 ? 'mobile' : vw < 1024 ? 'tablet' : 'desktop');
 const num = (v: unknown, min: number, max: number, dflt = 0) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt; };
-const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : null);
-const pathOf = (v: unknown) => { const p = str(v, 300); return p && p.startsWith('/') ? p : null; };
 
 export const POST: APIRoute = async ({ request }) => {
   const origin = request.headers.get('Origin');
