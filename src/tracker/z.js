@@ -72,7 +72,18 @@
         el.parentNode.replaceChild(ph, el);
       } else el.parentNode && el.parentNode.removeChild(el);
     }
+    // Canvases (charts, WebGL backgrounds): keep their current picture when the browser allows it,
+    // otherwise leave a transparent box so the page background shows through.
     var cc = c.querySelectorAll('canvas');
+    for (i = 0; i < cc.length; i++) {
+      var src = null, sz = sizes[i] || [0, 0];
+      try { if (canv[i].width * canv[i].height < 4e6) { src = canv[i].toDataURL('image/webp', 0.7); if (src.length > 6e5 || src.indexOf('data:image/') !== 0) src = null; } } catch (e) { src = null; }
+      var rep = d.createElement(src ? 'img' : 'div');
+      if (src) rep.setAttribute('src', src);
+      rep.className = cc[i].className || '';
+      rep.setAttribute('style', (cc[i].getAttribute('style') || '') + ';width:' + Math.round(sz[0]) + 'px;height:' + Math.round(sz[1]) + 'px;object-fit:fill');
+      cc[i].parentNode.replaceChild(rep, cc[i]);
+    }
     for (i = 0; i < cc.length; i++) { var cd = d.createElement('div'); cd.className = cc[i].className || ''; cd.setAttribute('style', (cc[i].getAttribute('style') || '') + ';background:#cfcfcf;width:' + Math.round(sizes[i] ? sizes[i][0] : 0) + 'px;height:' + Math.round(sizes[i] ? sizes[i][1] : 0) + 'px'); cc[i].parentNode.replaceChild(cd, cc[i]); }
     var els = c.querySelectorAll('*');
     for (i = 0; i < els.length; i++) {
