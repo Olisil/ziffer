@@ -3,7 +3,7 @@ import App from '../../../layouts/App.astro';
 import AppHeader from '../../../components/AppHeader.astro';
 import TitleRow from '../../../components/TitleRow.astro';
 import { loadEnvPage, fmt } from '../../../lib/page';
-import { rangeOf, url } from '../../../lib/server';
+import { db, rangeOf, url } from '../../../lib/server';
 import { heatmapData, heatmapPages } from '../../../lib/stats';
 import { getSnapshot } from '../../../lib/snapshots';
 
@@ -18,7 +18,15 @@ const path = sp.get('page') || pages[0]?.path || '/';
 const device = sp.get('device') === 'mobile' ? 'mobile' : 'desktop';
 const mode = sp.get('mode') === 'scroll' ? 'scroll' : 'clicks';
 const data = await heatmapData(env.id, path, device, r.from, r.to);
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (form.get('action') === 'retake') {
+    await db().prepare('DELETE FROM snapshots WHERE env_id = ? AND path = ? AND device = ?').bind(env.id, path, device).run();
+  }
+  return Astro.redirect(Astro.url.pathname + Astro.url.search);
+}
 const snap = await getSnapshot(env.id, path, device).catch(() => null);
+const pageUrl = env.domain ? `https://${env.domain}${path}` : null;
 // Draw on the snapshot's geometry when there is one, otherwise on the average of recorded page views.
 const width = snap?.dw || data.geo?.dw || (device === 'mobile' ? 390 : 1280);
 const height = Math.min(snap?.dh || data.geo?.dh || (device === 'mobile' ? 2400 : 3000), 30000);
@@ -92,11 +100,23 @@ const rageCount = data.clicks.filter((c) => c.rage).length;
           )}
         </div>
       )}
-      <p class="muted" style="margin:12px 0 0;font-size:12px">
-        {snap
-          ? `Page snapshot from ${fmt.date(snap.ts)}, ${snap.vw}×${snap.vh}. Scroll inside the frame. Snapshots refresh every few days as visitors arrive.`
-          : 'No page snapshot yet. The tracker captures the page layout on the next visit to this page, then the heat is drawn on the real page. Until then it’s shown on a neutral background.'}
-      </p>
+      <div class="z-heat-note">
+        {snap ? (
+          <>
+            <span class="muted">Page snapshot from {fmt.date(snap.ts)}, {snap.vw}×{snap.vh}. Scroll inside the frame. It refreshes every few days as visitors arrive.</span>
+            <form method="post"><input type="hidden" name="action" value="retake" /><button class="z-btn z-btn-secondary" type="submit">Retake snapshot</button></form>
+          </>
+        ) : (
+          <>
+            <span class="muted">
+              No picture of this page yet. Ziffer takes one from the next {device} visit.
+              {pageUrl && device === 'desktop' && ' Open the page yourself to take it now, then reload this view.'}
+              {pageUrl && device === 'mobile' && ' Open the page on your phone to take it now, then reload this view.'}
+            </span>
+            {pageUrl && device === 'desktop' && <a class="z-btn z-btn-secondary" href={pageUrl} target="_blank" rel="noopener noreferrer">Open {env.domain}{path} ↗</a>}
+          </>
+        )}
+      </div>
     </section>
     <script type="application/json" id="hm-data" set:html={payload}></script>
   </main>

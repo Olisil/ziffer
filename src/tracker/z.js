@@ -31,12 +31,14 @@
      Scripts, form values and anything marked data-ziffer-mask are removed before sending. */
   var snapApi = new URL('api/snap', s.src).href;
   function whenSettled(fn) {
-    var go = function () { setTimeout(function () { (w.requestIdleCallback || setTimeout)(fn, { timeout: 4000 }); }, 2500); };
+    var go = function () { setTimeout(function () { (w.requestIdleCallback || setTimeout)(fn, { timeout: 1500 }); }, 900); };
     if (d.readyState === 'complete') go(); else w.addEventListener('load', go, { once: true });
   }
   function maybeSnapshot() {
     if (!pv || !w.fetch || !w.DOMParser) return;
-    var path = pv.path, g = dims(), flag = 'zf_snap:' + (g.vw < 768 ? 'm' : 'd') + path;
+    var path = pv.path, g = dims();
+    if (g.vw < 200 || g.vh < 200) return;
+    var flag = 'zf_snap:' + (g.vw < 768 ? 'm' : 'd') + path;
     try { if (sessionStorage.getItem(flag)) return; sessionStorage.setItem(flag, '1'); } catch (e) {}
     fetch(snapApi + '?k=' + encodeURIComponent(key) + '&p=' + encodeURIComponent(path) + '&vw=' + g.vw, { credentials: 'omit' })
       .then(function (r) { return r.ok ? r.json() : { need: false }; })
@@ -134,8 +136,21 @@
   w.addEventListener('pagehide', function () { end(); flush(); });
   w.addEventListener('scroll', onScroll, { passive: true });
   d.addEventListener('click', onClick, true);
-  ['pushState', 'replaceState'].forEach(function (m) { var o = history[m]; history[m] = function () { var r = o.apply(this, arguments); setTimeout(start, 0); return r; }; });
-  w.addEventListener('popstate', start);
+  ['pushState', 'replaceState'].forEach(function (m) { var o = history[m]; history[m] = function () { var r = o.apply(this, arguments); if (live) setTimeout(start, 0); return r; }; });
+  w.addEventListener('popstate', function () { if (live) start(); });
   setInterval(flush, 5000);
-  if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', start); else start();
+  // Count a page only once it is really shown: not while Chrome prerenders it, and not while it sits in a
+  // background tab with no layout yet (its width would read as 0 and look like a tiny mobile screen).
+  var live = false;
+  function shown() { return !d.prerendering && d.visibilityState === 'visible' && w.innerWidth > 0; }
+  function go() {
+    if (live) return;
+    if (d.readyState === 'loading' || !shown()) return;
+    live = true; start();
+  }
+  d.addEventListener('DOMContentLoaded', go);
+  d.addEventListener('visibilitychange', go);
+  d.addEventListener('prerenderingchange', go);
+  w.addEventListener('resize', go);
+  go();
 })(window, document);

@@ -184,3 +184,5 @@ a.z-list-row:hover .grow { text-decoration: underline; }
 .z-mobile-tabs { display: none; gap: 4px; overflow-x: auto; padding: 8px 16px; border-bottom: 1px solid var(--_theme---border); }
 .z-logo-mark { display: none; }
 .z-heat-blank { position: absolute; inset: 0; background: repeating-linear-gradient(180deg, var(--_theme---surface) 0 120px, var(--_theme---surface-raised) 120px 240px); }
+.z-heat-note { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-top: 12px; font-size: 12px; }
+.z-heat-note form { margin: 0; }

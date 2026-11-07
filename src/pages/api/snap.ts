@@ -23,8 +23,9 @@ export const GET: APIRoute = async ({ request, url }) => {
   const headers = { ...corsFor(r.origin), 'Content-Type': 'application/json', 'Cache-Control': 'no-store' };
   if ('error' in r) return new Response('{"need":false}', { status: r.error === 204 ? 200 : r.error, headers });
   const path = pathOf(url.searchParams.get('p'));
-  const device = deviceBucket(Number(url.searchParams.get('vw')) || 0);
-  const need = !!path && (await snapshotWanted(r.site.id, path, device));
+  const vwq = Number(url.searchParams.get('vw')) || 0;
+  const device = deviceBucket(vwq);
+  const need = !!path && vwq >= 240 && (await snapshotWanted(r.site.id, path, device));
   return new Response(JSON.stringify({ need }), { headers });
 };
 
@@ -40,6 +41,7 @@ export const POST: APIRoute = async ({ request }) => {
   if ('error' in r) return new Response(null, { status: r.error, headers: cors });
   const path = pathOf(body.p), html = typeof body.html === 'string' ? body.html : '';
   if (!path || html.length < 100 || html.length > SNAP_MAX_BYTES) return new Response('bad', { status: 400, headers: cors });
+  if (!(Number(body.vw) >= 240 && Number(body.vh) >= 240)) return new Response('no layout', { status: 400, headers: cors });
   const vw = num(body.vw, 200, 4000), vh = num(body.vh, 200, 4000), dw = num(body.dw, 200, 8000), dh = num(body.dh, 200, 60000);
   const device = deviceBucket(vw);
   // Re-check on write so a snapshot can't be overwritten more often than the freshness window allows.
