@@ -66,6 +66,7 @@
     var drop = c.querySelectorAll('script, noscript, iframe, object, embed, template, link[rel=preload], link[rel=modulepreload], link[rel=prefetch], meta[http-equiv], base');
     for (i = 0; i < drop.length; i++) {
       var el = drop[i];
+      if (!el.parentNode) continue; // already removed with an ancestor
       if (el.tagName === 'IFRAME' || el.tagName === 'OBJECT' || el.tagName === 'EMBED') {
         var ph = d.createElement('div'); ph.setAttribute('style', (el.getAttribute('style') || '') + ';background:#d9d9d9;width:' + (el.getAttribute('width') ? el.getAttribute('width') + 'px' : '100%') + ';height:' + (el.getAttribute('height') ? el.getAttribute('height') + 'px' : '100%'));
         ph.className = el.className || '';
@@ -82,9 +83,8 @@
       if (src) rep.setAttribute('src', src);
       rep.className = cc[i].className || '';
       rep.setAttribute('style', (cc[i].getAttribute('style') || '') + ';width:' + Math.round(sz[0]) + 'px;height:' + Math.round(sz[1]) + 'px;object-fit:fill');
-      cc[i].parentNode.replaceChild(rep, cc[i]);
+      if (cc[i].parentNode) cc[i].parentNode.replaceChild(rep, cc[i]);
     }
-    for (i = 0; i < cc.length; i++) { var cd = d.createElement('div'); cd.className = cc[i].className || ''; cd.setAttribute('style', (cc[i].getAttribute('style') || '') + ';background:#cfcfcf;width:' + Math.round(sizes[i] ? sizes[i][0] : 0) + 'px;height:' + Math.round(sizes[i] ? sizes[i][1] : 0) + 'px'); cc[i].parentNode.replaceChild(cd, cc[i]); }
     var els = c.querySelectorAll('*');
     for (i = 0; i < els.length; i++) {
       var e = els[i], t = e.tagName;
