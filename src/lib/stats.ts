@@ -79,3 +79,143 @@ export async function heatmapData(env: string, path: string, device: 'desktop' |
   const reach = Array.from({ length: 21 }, (_, i) => (scrolls.length ? scrolls.filter((r) => r.scroll >= i * 5).length / scrolls.length : 0));
   return { clicks, geo, reach };
 }
+
+/* ---------- Overview: one card per environment ---------- */
+
+export type EnvCard = {
+  sessions: number; visitors: number; engagement: number; rage: number; pageviews: number;
+  prevSessions: number; prevVisitors: number; scroll: number; live: number;
+  counts: number[]; topPage: string | null; topPageViews: number;
+};
+
+export async function overview(envIds: string[], from: number, to: number, prevFrom: number, days: number) {
+  const out = new Map<string, EnvCard>();
+  if (!envIds.length) return out;
+  const ids = envIds.slice(0, 90);
+  const ph = ids.map(() => '?').join(',');
+  const bucket = days <= 1 ? 3600e3 : 864e5;
+  const buckets = Math.round((to - from) / bucket);
+  const [now, prev, scroll, series, pages, live] = await Promise.all([
+    all<{ env_id: string; sessions: number; visitors: number; engagement: number; rage: number; pageviews: number }>(
+      `SELECT env_id, COUNT(*) AS sessions, COUNT(DISTINCT visitor) AS visitors, COALESCE(AVG(duration), 0) AS engagement,
+              COALESCE(SUM(rage), 0) AS rage, COALESCE(SUM(pageviews), 0) AS pageviews
+         FROM sessions WHERE env_id IN (${ph}) AND started >= ? AND started < ? GROUP BY env_id`, ...ids, from, to),
+    all<{ env_id: string; sessions: number; visitors: number }>(
+      `SELECT env_id, COUNT(*) AS sessions, COUNT(DISTINCT visitor) AS visitors
+         FROM sessions WHERE env_id IN (${ph}) AND started >= ? AND started < ? GROUP BY env_id`, ...ids, prevFrom, from),
+    all<{ env_id: string; scroll: number }>(
+      `SELECT env_id, AVG(scroll) AS scroll FROM pageviews WHERE env_id IN (${ph}) AND ts >= ? AND ts < ? GROUP BY env_id`, ...ids, from, to),
+    all<{ env_id: string; b: number; n: number }>(
+      `SELECT env_id, CAST((started - ?) / ? AS INTEGER) AS b, COUNT(*) AS n FROM sessions
+        WHERE env_id IN (${ph}) AND started >= ? AND started < ? GROUP BY env_id, b`, from, bucket, ...ids, from, to),
+    all<{ env_id: string; path: string; n: number }>(
+      `SELECT env_id, path, COUNT(*) AS n FROM pageviews WHERE env_id IN (${ph}) AND ts >= ? AND ts < ? GROUP BY env_id, path`, ...ids, from, to),
+    all<{ env_id: string; n: number }>(
+      `SELECT env_id, COUNT(*) AS n FROM sessions WHERE env_id IN (${ph}) AND last_seen >= ? GROUP BY env_id`, ...ids, Date.now() - 5 * 60e3),
+  ]);
+  for (const id of ids) {
+    const n = now.find((r) => r.env_id === id), p = prev.find((r) => r.env_id === id);
+    const top = pages.filter((r) => r.env_id === id).sort((a, b) => b.n - a.n)[0];
+    out.set(id, {
+      sessions: n?.sessions ?? 0, visitors: n?.visitors ?? 0, engagement: n?.engagement ?? 0, rage: n?.rage ?? 0, pageviews: n?.pageviews ?? 0,
+      prevSessions: p?.sessions ?? 0, prevVisitors: p?.visitors ?? 0,
+      scroll: scroll.find((r) => r.env_id === id)?.scroll ?? 0,
+      live: live.find((r) => r.env_id === id)?.n ?? 0,
+      counts: Array.from({ length: buckets }, (_, i) => series.find((r) => r.env_id === id && r.b === i)?.n ?? 0),
+      topPage: top?.path ?? null, topPageViews: top?.n ?? 0,
+    });
+  }
+  return out;
+}
+
+/* ---------- Sessions: filters, signals and journeys ---------- */
+
+export type SessionFilters = {
+  device?: 'desktop' | 'tablet' | 'mobile';
+  signal?: 'frustrated' | 'bounced' | 'engaged';
+  source?: string; // referrer host, or 'direct'
+  page?: string; // visited path
+  country?: string;
+  sort?: 'newest' | 'longest' | 'pages' | 'frustrated';
+};
+
+const SIGNAL_SQL = {
+  frustrated: '(s.rage > 0 OR s.dead >= 2)',
+  bounced: '(s.pageviews <= 1 AND s.duration < 10)',
+  engaged: '(s.duration >= 60 OR (SELECT MAX(scroll) FROM pageviews p WHERE p.session_id = s.id) >= 75)',
+} as const;
+
+function sessionWhere(env: string, from: number, to: number, f: SessionFilters, withSignal = true) {
+  const w = ['s.env_id = ?', 's.started >= ?', 's.started < ?'];
+  const b: unknown[] = [env, from, to];
+  if (f.device) { w.push('COALESCE(s.device, \'desktop\') = ?'); b.push(f.device); }
+  if (f.source === 'direct') w.push('s.referrer IS NULL');
+  else if (f.source) { w.push('s.referrer = ?'); b.push(f.source); }
+  if (f.country) { w.push('s.country = ?'); b.push(f.country); }
+  if (f.page) { w.push('EXISTS (SELECT 1 FROM pageviews p WHERE p.session_id = s.id AND p.path = ?)'); b.push(f.page); }
+  if (withSignal && f.signal) w.push(SIGNAL_SQL[f.signal]);
+  return { where: w.join(' AND '), binds: b };
+}
+
+export type SessionListRow = SessionRow & { browser: string | null; os: string | null; dead: number };
+export type JourneyPage = { path: string; ts: number; duration: number; scroll: number };
+export type JourneyClick = { ts: number; rage: number; dead: number };
+
+export async function sessionList(env: string, from: number, to: number, f: SessionFilters, limit = 30, offset = 0) {
+  const { where, binds } = sessionWhere(env, from, to, f);
+  const order = f.sort === 'longest' ? 's.duration DESC' : f.sort === 'pages' ? 's.pageviews DESC, s.duration DESC'
+    : f.sort === 'frustrated' ? '(s.rage * 3 + s.dead) DESC, s.started DESC' : 's.started DESC';
+  const rows = await all<SessionListRow>(`SELECT s.* FROM sessions s WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, ...binds, limit, offset);
+  const ids = rows.map((r) => r.id);
+  const pages = new Map<string, JourneyPage[]>(), clicks = new Map<string, JourneyClick[]>();
+  if (ids.length) {
+    const ph = ids.map(() => '?').join(',');
+    const [pv, cl] = await Promise.all([
+      all<JourneyPage & { session_id: string }>(`SELECT session_id, path, ts, duration, scroll FROM pageviews WHERE session_id IN (${ph}) ORDER BY ts`, ...ids),
+      all<JourneyClick & { session_id: string }>(`SELECT session_id, ts, rage, dead FROM clicks WHERE session_id IN (${ph}) ORDER BY ts LIMIT 3000`, ...ids),
+    ]);
+    for (const p of pv) { const a = pages.get(p.session_id) ?? []; a.push(p); pages.set(p.session_id, a); }
+    for (const c of cl) { const a = clicks.get(c.session_id) ?? []; a.push(c); clicks.set(c.session_id, a); }
+  }
+  return rows.map((r) => ({ ...r, pages: pages.get(r.id) ?? [], clicks: clicks.get(r.id) ?? [] }));
+}
+
+export async function sessionSummary(env: string, from: number, to: number, f: SessionFilters) {
+  const { where, binds } = sessionWhere(env, from, to, f, false);
+  return one<{ total: number; frustrated: number; bounced: number; engaged: number; avg: number }>(
+    `SELECT COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN ${SIGNAL_SQL.frustrated} THEN 1 ELSE 0 END), 0) AS frustrated,
+            COALESCE(SUM(CASE WHEN ${SIGNAL_SQL.bounced} THEN 1 ELSE 0 END), 0) AS bounced,
+            COALESCE(SUM(CASE WHEN ${SIGNAL_SQL.engaged} THEN 1 ELSE 0 END), 0) AS engaged,
+            COALESCE(AVG(s.duration), 0) AS avg
+       FROM sessions s WHERE ${where}`, ...binds);
+}
+
+export async function sessionFacets(env: string, from: number, to: number) {
+  const [sources, countries, pages] = await Promise.all([
+    all<{ v: string | null; n: number }>(`SELECT referrer AS v, COUNT(*) AS n FROM sessions WHERE env_id = ? AND started >= ? AND started < ? GROUP BY 1 ORDER BY n DESC LIMIT 12`, env, from, to),
+    all<{ v: string; n: number }>(`SELECT country AS v, COUNT(*) AS n FROM sessions WHERE env_id = ? AND started >= ? AND started < ? AND country IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 20`, env, from, to),
+    all<{ v: string; n: number }>(`SELECT path AS v, COUNT(*) AS n FROM pageviews WHERE env_id = ? AND ts >= ? AND ts < ? GROUP BY 1 ORDER BY n DESC LIMIT 30`, env, from, to),
+  ]);
+  return { sources, countries, pages };
+}
+
+/** Everything for one session page: views with their clicks and geometry, plus neighbours for prev/next. */
+export async function sessionStory(env: string, sid: string) {
+  const s = await db().prepare('SELECT * FROM sessions WHERE id = ? AND env_id = ?').bind(sid, env).first<SessionListRow>();
+  if (!s) return null;
+  const [pages, clicks, prev, next] = await Promise.all([
+    all<{ id: string; path: string; title: string | null; ts: number; duration: number; scroll: number; vw: number; vh: number; dw: number; dh: number }>(
+      'SELECT id, path, title, ts, duration, scroll, vw, vh, dw, dh FROM pageviews WHERE session_id = ? ORDER BY ts', sid),
+    all<{ path: string; ts: number; xr: number; y: number; dh: number; sel: string | null; rage: number; dead: number }>(
+      'SELECT path, ts, xr, y, dh, sel, rage, dead FROM clicks WHERE session_id = ? ORDER BY ts LIMIT 500', sid),
+    db().prepare('SELECT id FROM sessions WHERE env_id = ? AND (started > ? OR (started = ? AND id > ?)) ORDER BY started ASC, id ASC LIMIT 1').bind(env, s.started, s.started, s.id).first<{ id: string }>(),
+    db().prepare('SELECT id FROM sessions WHERE env_id = ? AND (started < ? OR (started = ? AND id < ?)) ORDER BY started DESC, id DESC LIMIT 1').bind(env, s.started, s.started, s.id).first<{ id: string }>(),
+  ]);
+  // Attach each click to the page view it happened in (same path, between this view and the next).
+  const views = pages.map((p, i) => {
+    const end = pages[i + 1]?.ts ?? Infinity;
+    return { ...p, clicks: clicks.filter((c) => c.path === p.path && c.ts >= p.ts - 1000 && c.ts < end) };
+  });
+  return { s, views, newer: prev?.id ?? null, older: next?.id ?? null };
+}

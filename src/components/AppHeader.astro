@@ -34,6 +34,8 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
       <details class="z-scope project">
         <summary><span class="z-avatar-sq">{initial(project.name)}</span>{project.name}</summary>
         <div class="z-scope-menu" role="menu">
+          <a href={url('')}><span class="z-avatar-sq">◎</span>All sites overview</a>
+          <div class="z-menu-sep"></div>
           <div class="z-menu-label">Projects</div>
           {projects.map((p) => (
             <a href={url(`p/${p.id}`)} aria-current={p.id === project.id ? 'true' : undefined}><span class="z-avatar-sq">{initial(p.name)}</span>{p.name}</a>
@@ -56,6 +58,9 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
         <a href={url(`p/${env.project_id}/environments/new`)}>+ Add environment</a>
       </div>
     </details>
+  )}
+  {!env && (
+    <nav class="z-tabs" aria-label="Views"><a class="z-tab" href={url('')} aria-current="page">Overview</a></nav>
   )}
   {tabs.length > 0 && (
     <nav class="z-tabs" aria-label="Views">

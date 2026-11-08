@@ -6,6 +6,7 @@ import { loadEnvPage, fmt } from '../../../lib/page';
 import { db, rangeOf, url } from '../../../lib/server';
 import { heatmapData, heatmapPages } from '../../../lib/stats';
 import { getSnapshot } from '../../../lib/snapshots';
+import SnapshotView from '../../../components/SnapshotView.astro';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
@@ -38,11 +39,10 @@ const link = (patch: Record<string, string>) => {
   for (const [k, v] of Object.entries(patch)) u.searchParams.set(k, v);
   return u.pathname + u.search;
 };
-const payload = JSON.stringify({
-  mode, width, height, fold, reach: data.reach, viewW, viewH,
-  snapshot: snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(path)}&device=${device}&v=${snap.ts}`) : null,
-  clicks: data.clicks.map((c) => [Math.round(c.xr * width), Math.round(c.dh ? (c.y * height) / c.dh : c.y), c.rage]),
-}).replace(/</g, '\\u003c');
+const snapshotUrl = snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(path)}&device=${device}&v=${snap.ts}`) : null;
+const overlay = mode === 'scroll'
+  ? { mode: 'scroll' as const, reach: data.reach }
+  : { mode: 'heat' as const, fold, clicks: data.clicks.map((c) => [Math.round(c.xr * width), Math.round(c.dh ? (c.y * height) / c.dh : c.y), c.rage] as [number, number, number]) };
 const rageCount = data.clicks.filter((c) => c.rage).length;
 ---
 <App title={`${env.name} · Heatmaps`}>
@@ -86,19 +86,7 @@ const rageCount = data.clicks.filter((c) => c.rage).length;
       {(data.geo?.n || 0) === 0 ? (
         <p class="muted" style="margin:0;font-size:13px">No {device} views of this page in the period yet.</p>
       ) : (
-        <div class="z-heat-wrap" id="hm-wrap">
-          {snap ? (
-            <div class="z-heat-stage" id="hm-stage" style={`width:${viewW}px;height:${viewH}px`}>
-              <div class="z-heat-blank" aria-hidden="true"></div>
-              <iframe id="hm-frame" title={`Snapshot of ${path} with heat overlay`} sandbox="" referrerpolicy="no-referrer" style={`width:${viewW}px;height:${viewH}px;background:#fff`}></iframe>
-            </div>
-          ) : (
-            <div class="z-heat-stage" id="hm-stage" style={`width:${width}px;height:${height}px`}>
-              <div class="z-heat-blank" aria-hidden="true"></div>
-              <canvas id="hm-canvas" width={width} height={height} style={`width:${width}px;height:${height}px`}></canvas>
-            </div>
-          )}
-        </div>
+        <SnapshotView snapshot={snapshotUrl} W={width} H={height} viewW={viewW} viewH={viewH} overlay={overlay} title={`${path} with ${mode === 'scroll' ? 'scroll depth' : 'click heat'}`} />
       )}
       <div class="z-heat-note">
         {snap ? (
@@ -118,105 +106,5 @@ const rageCount = data.clicks.filter((c) => c.rage).length;
         )}
       </div>
     </section>
-    <script type="application/json" id="hm-data" set:html={payload}></script>
   </main>
-  <script is:inline>
-    (function () {
-      var el = document.getElementById('hm-data'), stage = document.getElementById('hm-stage');
-      if (!el || !stage) return;
-      var d = JSON.parse(el.textContent), W = d.width, H = d.height;
-      var frame = document.getElementById('hm-frame'), cv = document.getElementById('hm-canvas');
-      if (!cv) { cv = document.createElement('canvas'); cv.width = W; cv.height = H; }
-      var ctx = cv.getContext('2d'), wrap = document.getElementById('hm-wrap');
-      var SW = frame ? d.viewW : W, SH = frame ? d.viewH : H;
-      function fit() {
-        var s = Math.min(1, (wrap.clientWidth - 2) / SW);
-        stage.style.transform = 'scale(' + s + ')';
-        stage.style.marginBottom = (SH * s - SH) + 'px';
-        stage.style.marginRight = (SW * s - SW) + 'px';
-        stage.style.marginLeft = Math.max(0, (wrap.clientWidth - 2 - SW * s) / 2) + 'px'; // centre narrow (mobile) views
-      }
-      fit(); addEventListener('resize', fit);
-      // Palette from the logo: blue → amber → coral.
-      var stops = [[0, [59, 120, 253]], [0.45, [255, 188, 64]], [1, [255, 82, 56]]];
-      function col(t) {
-        for (var i = 1; i < stops.length; i++) if (t <= stops[i][0]) {
-          var a = stops[i - 1], b = stops[i], k = (t - a[0]) / (b[0] - a[0]);
-          return [0, 1, 2].map(function (j) { return Math.round(a[1][j] + (b[1][j] - a[1][j]) * k); });
-        }
-        return stops[stops.length - 1][1];
-      }
-      if (d.mode === 'scroll') {
-        var step = H / 20;
-        for (var i = 0; i < 20; i++) {
-          var r = d.reach[i] || 0, c = col(r);
-          ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + (0.18 + 0.32 * r) + ')';
-          ctx.fillRect(0, i * step, W, step + 1);
-        }
-        ctx.font = '600 ' + Math.max(14, W / 70) + 'px Inter, system-ui, sans-serif';
-        for (var j = 1; j < 20; j += 2) {
-          var y = j * step, label = Math.round((d.reach[j] || 0) * 100) + '% reached here';
-          ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(16, y - 14, ctx.measureText(label).width + 20, 28);
-          ctx.fillStyle = '#fff'; ctx.fillText(label, 26, y + 6);
-        }
-      } else {
-        // Accumulate intensity in alpha, then colour it.
-        var R = Math.max(18, W / 45), off = document.createElement('canvas'); off.width = W; off.height = H;
-        var o = off.getContext('2d');
-        d.clicks.forEach(function (p) {
-          var g = o.createRadialGradient(p[0], p[1], 0, p[0], p[1], R);
-          g.addColorStop(0, 'rgba(0,0,0,' + (p[2] ? 0.16 : 0.08) + ')'); g.addColorStop(1, 'rgba(0,0,0,0)');
-          o.fillStyle = g; o.fillRect(p[0] - R, p[1] - R, R * 2, R * 2);
-        });
-        var img = o.getImageData(0, 0, W, H), px = img.data, max = 0, lut = [];
-        for (var k = 3; k < px.length; k += 4) if (px[k] > max) max = px[k];
-        for (var v = 0; v < 256; v++) lut[v] = col(Math.min(1, v / (max || 1)));
-        for (var m = 0; m < px.length; m += 4) {
-          var a = px[m + 3]; if (a < 4) { px[m + 3] = 0; continue; }
-          var cc = lut[a]; px[m] = cc[0]; px[m + 1] = cc[1]; px[m + 2] = cc[2]; px[m + 3] = Math.round(70 + 150 * Math.pow(a / (max || 1), 0.7));
-        }
-        ctx.putImageData(img, 0, 0);
-        // Fold line.
-        ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(0, d.fold); ctx.lineTo(W, d.fold); ctx.stroke();
-        ctx.font = '600 13px Inter, system-ui, sans-serif'; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText('Average fold', 12, d.fold - 8);
-      }
-      if (!frame || !d.snapshot) return;
-
-      // Render the stored snapshot in a fully sandboxed frame (no scripts, no same-origin access),
-      // with the heat layer baked in as an image at the document's own coordinates.
-      fetch(d.snapshot, { credentials: 'same-origin' }).then(function (r) { if (!r.ok) throw 0; return r.text(); }).then(function (html) {
-        var doc = new DOMParser().parseFromString(html, 'text/html');
-        var bad = doc.querySelectorAll('script, iframe, object, embed, frame, frameset, meta[http-equiv], link[rel=import], link[rel=preload], link[rel=prefetch], link[rel=modulepreload]');
-        for (var i = 0; i < bad.length; i++) bad[i].remove();
-        var bases = doc.querySelectorAll('base');
-        for (var b = 1; b < bases.length; b++) bases[b].remove();
-        if (bases[0] && !/^https:\/\//i.test(bases[0].getAttribute('href') || '')) bases[0].remove();
-        var all = doc.querySelectorAll('*');
-        for (var j = 0; j < all.length; j++) {
-          var at = all[j].attributes;
-          for (var k2 = at.length - 1; k2 >= 0; k2--) {
-            var n = at[k2].name, v = at[k2].value;
-            if (/^on/i.test(n) || (/^(href|src|action|formaction|xlink:href|srcdoc)$/i.test(n) && /^\s*(javascript|vbscript):/i.test(v)) || n === 'srcdoc') all[j].removeAttribute(n);
-          }
-        }
-        var head = doc.head || doc.documentElement;
-        var csp = doc.createElement('meta');
-        csp.setAttribute('http-equiv', 'Content-Security-Policy');
-        csp.setAttribute('content', "script-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri https:");
-        head.insertBefore(csp, head.firstChild);
-        var st = doc.createElement('style');
-        st.textContent = 'a,button,input,select,textarea,label{pointer-events:none!important}html{scroll-behavior:auto!important}';
-        head.appendChild(st);
-        var heat = doc.createElement('img');
-        heat.setAttribute('alt', '');
-        heat.setAttribute('src', cv.toDataURL('image/png'));
-        heat.setAttribute('style', 'position:absolute!important;left:0!important;top:0!important;width:' + W + 'px!important;height:' + H + 'px!important;max-width:none!important;pointer-events:none!important;z-index:2147483647!important;opacity:1!important;transform:none!important;margin:0!important');
-        doc.documentElement.appendChild(heat);
-        frame.srcdoc = '<!DOCTYPE html>' + doc.documentElement.outerHTML;
-      }).catch(function () {
-        frame.remove(); cv.style.cssText = 'position:absolute;left:0;top:0;width:' + SW + 'px'; stage.appendChild(cv);
-      });
-    })();
-  </script>
 </App>

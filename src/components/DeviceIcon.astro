@@ -1,0 +1,10 @@
+---
+interface Props { device: string | null; size?: number }
+const { device, size = 16 } = Astro.props;
+const d = device || 'desktop';
+---
+<svg class="z-ico" width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+  {d === 'mobile' ? <><rect x="4.5" y="1.5" width="7" height="13" rx="1.6" /><path d="M7 12.5h2" /></>
+    : d === 'tablet' ? <><rect x="2.5" y="1.5" width="11" height="13" rx="1.6" /><path d="M7 12.5h2" /></>
+    : <><rect x="1.5" y="2.5" width="13" height="8.5" rx="1.2" /><path d="M5.5 14h5M8 11v3" /></>}
+</svg>

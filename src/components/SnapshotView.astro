@@ -1,0 +1,16 @@
+---
+import type { SnapProps } from '../scripts/snapshot-view';
+interface Props extends SnapProps { class?: string }
+const { class: cls, ...props } = Astro.props;
+const json = JSON.stringify(props).replace(/</g, '\\u003c');
+---
+<div class:list={['z-snap', cls]} data-snap-view>
+  <div class="z-snap-stage" style={`width:${props.viewW}px;height:${props.viewH}px`}>
+    <div class="z-snap-loading" aria-hidden="true"></div>
+  </div>
+  <script type="application/json" set:html={json}></script>
+</div>
+<script>
+  import { mountSnapshotViews } from '../scripts/snapshot-view';
+  mountSnapshotViews();
+</script>

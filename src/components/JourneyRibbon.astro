@@ -1,0 +1,27 @@
+---
+// A visit at a glance: one segment per page, width by time spent, with click ticks where they happened.
+import { fmt } from '../lib/page';
+import type { JourneyClick, JourneyPage } from '../lib/stats';
+interface Props { pages: JourneyPage[]; clicks: JourneyClick[]; large?: boolean; activeIndex?: number }
+const { pages, clicks, large = false } = Astro.props;
+const weights = pages.map((p) => Math.max(p.duration || 0, 2));
+const total = weights.reduce((a, b) => a + b, 0) || 1;
+const segs = pages.map((p, i) => {
+  const start = p.ts, end = pages[i + 1]?.ts ?? p.ts + (p.duration || 0) * 1000 + 1;
+  const span = Math.max(1, (p.duration || 0) * 1000, end - start);
+  const ticks = clicks
+    .filter((c) => c.ts >= start - 1000 && c.ts < end)
+    .map((c) => ({ at: Math.min(97, Math.max(3, ((c.ts - start) / span) * 100)), kind: c.rage ? 'rage' : c.dead ? 'dead' : 'ok' }));
+  return { p, i, w: (weights[i] / total) * 100, ticks };
+});
+---
+<div class:list={['z-ribbon', { large }]} role="img" aria-label={`Visited ${pages.map((p) => p.path).join(', ')}`}>
+  {segs.map(({ p, i, w, ticks }) => (
+    <span class="z-seg-page" style={`flex-grow:${w.toFixed(2)}`} data-i={i % 4} title={`${p.path} · ${fmt.dur(p.duration)} · scrolled ${fmt.pct(p.scroll)}`}>
+      <span class="z-seg-fill" style={`width:${Math.max(4, Math.min(100, p.scroll || 0))}%`}></span>
+      {(large || w > 14) && <span class="z-seg-label">{p.path}</span>}
+      {ticks.map((t) => <i class={`z-tick ${t.kind}`} style={`left:${t.at.toFixed(1)}%`}></i>)}
+    </span>
+  ))}
+  {pages.length === 0 && <span class="z-seg-page empty"></span>}
+</div>

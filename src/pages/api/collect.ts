@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { db } from '../../lib/server';
 import { envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
+import { browserOf, osOf } from '../../lib/ua';
 
 const MAX_BODY = 64 * 1024;
 const MAX_EVENTS = 200;
@@ -61,9 +62,9 @@ export const POST: APIRoute = async ({ request }) => {
       visitor ??= await visitorHash(await dailySalt(), ip, ua, env.id);
       const ref = str(e.r, 120) || null;
       stmts.push(
-        DB.prepare(`INSERT INTO sessions (id, env_id, visitor, started, last_seen, pageviews, device, country, referrer, entry_path, exit_path)
-                    VALUES (?1, ?2, ?3, ?4, ?4, 0, ?5, ?6, ?7, ?8, ?8) ON CONFLICT(id) DO NOTHING`)
-          .bind(sid, env.id, visitor, ts, deviceOf(vw), country, ref, path),
+        DB.prepare(`INSERT INTO sessions (id, env_id, visitor, started, last_seen, pageviews, device, country, referrer, entry_path, exit_path, browser, os)
+                    VALUES (?1, ?2, ?3, ?4, ?4, 0, ?5, ?6, ?7, ?8, ?8, ?9, ?10) ON CONFLICT(id) DO NOTHING`)
+          .bind(sid, env.id, visitor, ts, deviceOf(vw), country, ref, path, browserOf(ua), osOf(ua)),
         DB.prepare(`INSERT OR IGNORE INTO pageviews (id, session_id, env_id, path, title, ts, vw, vh, dw, dh)
                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?2 AND env_id = ?3)`)
           .bind(pvId, sid, env.id, path, str(e.ti, 140), ts, vw, num(e.vh, 0, 10000), num(e.dw, 0, 20000), num(e.dh, 0, 200000)),
@@ -80,13 +81,14 @@ export const POST: APIRoute = async ({ request }) => {
       );
     } else if (e.t === 'c') {
       const path = pathOf(e.p); if (!path) continue;
-      const rage = e.rg ? 1 : 0;
+      const rage = e.rg ? 1 : 0, dead = e.dc && !rage ? 1 : 0;
       stmts.push(
-        DB.prepare(`INSERT INTO clicks (session_id, env_id, path, ts, xr, y, vw, dw, dh, sel, rage)
-                    SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?1 AND env_id = ?2)`)
-          .bind(sid, env.id, path, clampTs(e.ts), num(e.xr, 0, 1), num(e.y, 0, 200000), num(e.vw, 0, 10000), num(e.dw, 0, 20000), num(e.dh, 0, 200000), str(e.s, 200), rage),
+        DB.prepare(`INSERT INTO clicks (session_id, env_id, path, ts, xr, y, vw, dw, dh, sel, rage, dead)
+                    SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?1 AND env_id = ?2)`)
+          .bind(sid, env.id, path, clampTs(e.ts), num(e.xr, 0, 1), num(e.y, 0, 200000), num(e.vw, 0, 10000), num(e.dw, 0, 20000), num(e.dh, 0, 200000), str(e.s, 200), rage, dead),
       );
       if (rage) stmts.push(DB.prepare('UPDATE sessions SET rage = rage + 1 WHERE id = ? AND env_id = ?').bind(sid, env.id));
+      if (dead) stmts.push(DB.prepare('UPDATE sessions SET dead = dead + 1 WHERE id = ? AND env_id = ?').bind(sid, env.id));
     }
   }
   if (stmts.length) await DB.batch(stmts);

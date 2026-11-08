@@ -1,7 +1,118 @@
 ---
-import { firstEnvironment, ownerId, url } from '../lib/server';
+// Signed-in home: every project and environment as a card with its headline numbers.
+import App from '../layouts/App.astro';
+import AppHeader from '../components/AppHeader.astro';
+import TitleRow from '../components/TitleRow.astro';
+import Sparkline from '../components/Sparkline.astro';
+import { fmt, isDevUser } from '../lib/page';
+import { listEnvironments, listProjects, ownerId, rangeOf, url } from '../lib/server';
+import { overview } from '../lib/stats';
+
 const owner = ownerId(Astro);
 if (!owner) return Astro.redirect(url('sign-in'));
-const first = await firstEnvironment(owner);
-return Astro.redirect(first ? url(`e/${first.id}`) : url('new'));
+const projects = await listProjects(owner);
+if (!projects.length) return Astro.redirect(url('new'));
+const groups = await Promise.all(projects.map(async (p) => ({ p, envs: await listEnvironments(p.id) })));
+const envs = groups.flatMap((g) => g.envs);
+if (!envs.length) return Astro.redirect(url(`p/${projects[0].id}/environments/new`));
+const r = rangeOf(Astro.url);
+const stats = await overview(envs.filter((e) => e.kind === 'web').map((e) => e.id), r.from, r.to, r.prevFrom, r.days);
+const q = `?range=${r.key}`;
+const totals = [...stats.values()].reduce((a, s) => ({ visitors: a.visitors + s.visitors, sessions: a.sessions + s.sessions, live: a.live + s.live, rage: a.rage + s.rage }), { visitors: 0, sessions: 0, live: 0, rage: 0 });
+const delta = (now: number, prev: number) => {
+  if (!prev) return now ? { text: 'New', cls: 'up' } : { text: '—', cls: 'flat' };
+  const p = ((now - prev) / prev) * 100;
+  return { text: `${p >= 0 ? '↑' : '↓'} ${Math.abs(p).toFixed(0)}%`, cls: p > 0 ? 'up' : p < 0 ? 'down' : 'flat' };
+};
+const rangeWord: Record<string, string> = { '24h': 'last 24 hours', '7d': 'last 7 days', '30d': 'last 30 days', '90d': 'last 90 days' };
+const initial = (s: string) => s.trim().charAt(0).toUpperCase() || '?';
 ---
+<App title="Overview">
+  <AppHeader projects={projects} devUser={isDevUser()} />
+  <main class="z-main">
+    <TitleRow eyebrow={`All sites · ${rangeWord[r.key]}`} title="Overview" range={r.key}>
+      <a class="z-btn z-btn-secondary" href={url('new')}>+ New project</a>
+    </TitleRow>
+
+    <section class="z-ov-totals" aria-label="All sites together">
+      <div><span class="z-kpi-label">Visitors</span><b>{fmt.int(totals.visitors)}</b></div>
+      <div><span class="z-kpi-label">Sessions</span><b>{fmt.int(totals.sessions)}</b></div>
+      <div><span class="z-kpi-label">On sites now</span><b class:list={[{ 'z-live-num': totals.live > 0 }]}>{totals.live > 0 && <i class="z-live-dot"></i>}{fmt.int(totals.live)}</b></div>
+      <div><span class="z-kpi-label">Rage clicks</span><b>{fmt.int(totals.rage)}</b></div>
+    </section>
+
+    {groups.map(({ p, envs }) => (
+      <section class="z-ov-group">
+        <div class="z-ov-group-head">
+          <span class="z-avatar-sq">{initial(p.name)}</span>
+          <h2>{p.name}</h2>
+          <span class="muted">{envs.length} {envs.length === 1 ? 'environment' : 'environments'}</span>
+          <span class="z-spacer"></span>
+          <a class="z-link" href={url(`p/${p.id}/environments/new`)}>+ Add environment</a>
+        </div>
+        <div class="z-ov-grid">
+          {envs.map((e) => {
+            const s = stats.get(e.id);
+            const d = s ? delta(s.visitors, s.prevVisitors) : null;
+            const empty = !s || (s.sessions === 0 && s.prevSessions === 0);
+            return (
+              <article class:list={['z-ov-card', e.kind]}>
+                <a class="z-ov-cover" href={url(`e/${e.id}${q}`)} aria-label={`Open ${e.name} dashboard`}></a>
+                <header class="z-ov-head">
+                  <span class={`z-ov-mono ${e.kind}`}>{initial(e.name)}</span>
+                  <span class="z-ov-name">
+                    <b>{e.name}</b>
+                    <span class="muted">{e.domain || (e.kind === 'tour' ? 'Virtual tour' : 'No domain')}</span>
+                  </span>
+                  {s && s.live > 0
+                    ? <span class="z-live" title="Visitors active in the last 5 minutes"><i class="z-live-dot"></i>{s.live} now</span>
+                    : <span class="z-chip">{e.kind === 'web' ? 'Web' : 'Tour'}</span>}
+                </header>
+                {e.kind === 'tour' ? (
+                  <div class="z-ov-empty">
+                    <b>Intus tour statistics</b>
+                    <span class="muted">Visits, time per room and walking paths appear here once the tour data is connected.</span>
+                  </div>
+                ) : empty ? (
+                  <div class="z-ov-empty">
+                    <b>Waiting for the first visit</b>
+                    <span class="muted">Add the snippet to {e.domain || 'the site'} and publish.</span>
+                    <a class="z-btn z-btn-secondary z-ov-raise" href={url(`e/${e.id}/settings`)}>Install snippet</a>
+                  </div>
+                ) : (
+                  <>
+                    <div class="z-ov-hero">
+                      <div>
+                        <span class="z-kpi-label">Visitors</span>
+                        <b class="z-ov-big">{fmt.int(s!.visitors)}</b>
+                        <span class={`z-delta ${d!.cls}`}>{d!.text}</span>
+                      </div>
+                      <div class="z-ov-spark"><Sparkline values={s!.counts} label={`Sessions per ${r.days <= 1 ? 'hour' : 'day'}`} /></div>
+                    </div>
+                    <dl class="z-ov-kpis">
+                      <div><dt>Sessions</dt><dd>{fmt.int(s!.sessions)}</dd></div>
+                      <div><dt>Engagement</dt><dd>{fmt.dur(s!.engagement)}</dd></div>
+                      <div><dt>Scroll</dt><dd>{fmt.pct(s!.scroll)}</dd></div>
+                      <div><dt>Rage</dt><dd class:list={[{ warn: s!.rage > 0 }]}>{fmt.int(s!.rage)}</dd></div>
+                    </dl>
+                    <div class="z-ov-top">
+                      <span class="muted">Top page</span>
+                      <span class="z-ov-top-path">{s!.topPage ?? '—'}</span>
+                      <span class="muted">{s!.topPageViews ? `${fmt.int(s!.topPageViews)} views` : ''}</span>
+                    </div>
+                  </>
+                )}
+                <footer class="z-ov-links">
+                  <a href={url(`e/${e.id}${q}`)}>Dashboard</a>
+                  {e.kind === 'web' && <a href={url(`e/${e.id}/sessions${q}`)}>Sessions</a>}
+                  {e.kind === 'web' && <a href={url(`e/${e.id}/heatmaps${q}`)}>Heatmaps</a>}
+                  <a href={url(`e/${e.id}/settings`)}>Settings</a>
+                </footer>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    ))}
+  </main>
+</App>

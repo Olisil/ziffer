@@ -1,0 +1,39 @@
+---
+import JourneyRibbon from './JourneyRibbon.astro';
+import DeviceIcon from './DeviceIcon.astro';
+import { fmt } from '../lib/page';
+import { url } from '../lib/server';
+import { flag, countryName, signalsOf, ago } from '../lib/look';
+import type { JourneyClick, JourneyPage, SessionListRow } from '../lib/stats';
+interface Props { s: SessionListRow & { pages: JourneyPage[]; clicks: JourneyClick[] }; envId: string; query?: string }
+const { s, envId, query = '' } = Astro.props;
+const maxScroll = Math.max(0, ...s.pages.map((p) => p.scroll || 0));
+const signals = signalsOf(s, maxScroll);
+const tech = [s.browser, s.os].filter(Boolean).join(' · ') || fmt.device(s.device);
+const when = ago(s.started) || fmt.time(s.started);
+const entry = s.entry_path || s.pages[0]?.path || '/';
+const exit = s.exit_path && s.exit_path !== entry ? s.exit_path : null;
+---
+<a class="z-sc" href={url(`e/${envId}/sessions/${s.id}${query}`)}>
+  <span class="z-sc-who">
+    <span class="z-sc-dev"><DeviceIcon device={s.device} size={18} /></span>
+    <span class="z-sc-who-text">
+      <span class="z-sc-time">{when}</span>
+      <span class="z-sc-tech">{tech}</span>
+      <span class="z-sc-geo" title={countryName(s.country)}>{flag(s.country)} {s.country || '—'} · {s.referrer || 'Direct'}</span>
+    </span>
+  </span>
+  <span class="z-sc-main">
+    <span class="z-sc-path"><b>{entry}</b>{exit && <><span class="muted"> → </span><b>{exit}</b></>}</span>
+    <JourneyRibbon pages={s.pages} clicks={s.clicks} />
+    {signals.length > 0 && (
+      <span class="z-sc-signals">{signals.map((g) => <span class={`z-signal ${g.key}`}>{g.label}</span>)}</span>
+    )}
+  </span>
+  <span class="z-sc-stats">
+    <span><b>{fmt.dur(s.duration)}</b><small>engaged</small></span>
+    <span><b>{s.pageviews}</b><small>{s.pageviews === 1 ? 'page' : 'pages'}</small></span>
+    <span><b>{s.clicks.length}</b><small>clicks</small></span>
+  </span>
+  <span class="z-sc-go" aria-hidden="true">›</span>
+</a>

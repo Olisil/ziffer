@@ -2,39 +2,138 @@
 import App from '../../../../layouts/App.astro';
 import AppHeader from '../../../../components/AppHeader.astro';
 import TitleRow from '../../../../components/TitleRow.astro';
-import SessionRow from '../../../../components/SessionRow.astro';
-import { loadEnvPage } from '../../../../lib/page';
-import { rangeOf } from '../../../../lib/server';
-import { recentSessions } from '../../../../lib/stats';
+import SessionCard from '../../../../components/SessionCard.astro';
+import { loadEnvPage, fmt } from '../../../../lib/page';
+import { rangeOf, url } from '../../../../lib/server';
+import { sessionFacets, sessionList, sessionSummary, type SessionFilters } from '../../../../lib/stats';
+import { countryName, dayLabel, flag } from '../../../../lib/look';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
 const { env, project, projects, environments, devUser } = ctx;
-if (env.kind !== 'web') return Astro.redirect(Astro.url.pathname.replace(/\/sessions.*$/, ''));
+if (env.kind !== 'web') return Astro.redirect(url(`e/${env.id}`));
 const r = rangeOf(Astro.url);
-const page = Math.max(0, Number(Astro.url.searchParams.get('page') || 0) | 0);
-const PER = 50;
-const rows = await recentSessions(env.id, r.from, r.to, PER + 1, page * PER);
+const sp = Astro.url.searchParams;
+const pick = <T extends string>(v: string | null, ok: readonly T[]) => (ok.includes(v as T) ? (v as T) : undefined);
+const f: SessionFilters = {
+  device: pick(sp.get('device'), ['desktop', 'tablet', 'mobile'] as const),
+  signal: pick(sp.get('signal'), ['frustrated', 'bounced', 'engaged'] as const),
+  sort: pick(sp.get('sort'), ['newest', 'longest', 'pages', 'frustrated'] as const) ?? 'newest',
+  source: sp.get('source') || undefined,
+  country: sp.get('country') || undefined,
+  page: sp.get('page') || undefined,
+};
+const n = Math.max(0, Number(sp.get('n') || 0) | 0);
+const PER = 30;
+const [rows, sum, facets] = await Promise.all([
+  sessionList(env.id, r.from, r.to, f, PER + 1, n * PER),
+  sessionSummary(env.id, r.from, r.to, f),
+  sessionFacets(env.id, r.from, r.to),
+]);
 const more = rows.length > PER;
-const pageLink = (n: number) => { const u = new URL(Astro.url); u.searchParams.set('page', String(n)); return u.pathname + u.search; };
+const list = rows.slice(0, PER);
+const link = (patch: Record<string, string | undefined>) => {
+  const u = new URL(Astro.url);
+  for (const [k, v] of Object.entries(patch)) (v ? u.searchParams.set(k, v) : u.searchParams.delete(k));
+  if (!('n' in patch)) u.searchParams.delete('n');
+  return u.pathname + u.search;
+};
+const pct = (x: number) => (sum.total ? Math.round((x / sum.total) * 100) : 0);
+const tiles = [
+  { key: undefined, label: 'All sessions', value: fmt.int(sum.total), sub: `avg ${fmt.dur(sum.avg)}` },
+  { key: 'frustrated', label: 'Frustrated', value: fmt.int(sum.frustrated), sub: `${pct(sum.frustrated)}% · rage or dead clicks` },
+  { key: 'bounced', label: 'Quick exits', value: fmt.int(sum.bounced), sub: `${pct(sum.bounced)}% · one page, under 10 s` },
+  { key: 'engaged', label: 'Engaged', value: fmt.int(sum.engaged), sub: `${pct(sum.engaged)}% · 1 min+ or read to the end` },
+] as const;
+// Group the list by day when it's in time order.
+const groups: { day: string; items: typeof list }[] = [];
+for (const s of list) {
+  const day = f.sort === 'newest' ? dayLabel(s.started) : '';
+  const g = groups[groups.length - 1];
+  if (g && g.day === day) g.items.push(s); else groups.push({ day, items: [s] });
+}
+const detailQuery = Astro.url.search;
+const activeFilters = [f.device, f.source, f.country, f.page].filter(Boolean).length;
 ---
 <App title={`${env.name} · Sessions`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} />
   <main class="z-main">
     <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} title="Sessions" range={r.key} />
-    <section class="z-card">
-      <div class="z-card-head">
-        <span class="z-card-title">Visits, newest first</span>
-        <span class="z-card-hint">Journeys and clicks today · full screen replays arrive with session recording</span>
+
+    <section class="z-signal-tiles" aria-label="Session signals">
+      {tiles.map((t) => (
+        <a class:list={['z-stile', t.key ?? 'all']} href={link({ signal: t.key })} aria-current={f.signal === t.key ? 'true' : undefined}>
+          <span class="z-stile-label"><i></i>{t.label}</span>
+          <span class="z-stile-value">{t.value}</span>
+          <span class="z-stile-sub">{t.sub}</span>
+        </a>
+      ))}
+    </section>
+
+    <form class="z-filterbar" method="get">
+      <input type="hidden" name="range" value={r.key} />
+      {f.signal && <input type="hidden" name="signal" value={f.signal} />}
+      <nav class="z-seg" aria-label="Device">
+        <a href={link({ device: undefined })} aria-current={String(!f.device)}>All</a>
+        <a href={link({ device: 'desktop' })} aria-current={String(f.device === 'desktop')}>Desktop</a>
+        <a href={link({ device: 'tablet' })} aria-current={String(f.device === 'tablet')}>Tablet</a>
+        <a href={link({ device: 'mobile' })} aria-current={String(f.device === 'mobile')}>Mobile</a>
+      </nav>
+      {f.device && <input type="hidden" name="device" value={f.device} />}
+      <label class="z-fsel"><span>Page</span>
+        <select name="page" class="z-select" onchange="this.form.submit()">
+          <option value="">Any page</option>
+          {facets.pages.map((p) => <option value={p.v} selected={f.page === p.v}>{p.v} ({p.n})</option>)}
+        </select>
+      </label>
+      <label class="z-fsel"><span>Source</span>
+        <select name="source" class="z-select" onchange="this.form.submit()">
+          <option value="">Any source</option>
+          {facets.sources.map((s) => <option value={s.v ?? 'direct'} selected={f.source === (s.v ?? 'direct')}>{s.v ?? 'Direct'} ({s.n})</option>)}
+        </select>
+      </label>
+      <label class="z-fsel"><span>Country</span>
+        <select name="country" class="z-select" onchange="this.form.submit()">
+          <option value="">Anywhere</option>
+          {facets.countries.map((c) => <option value={c.v} selected={f.country === c.v}>{flag(c.v)} {countryName(c.v)} ({c.n})</option>)}
+        </select>
+      </label>
+      <label class="z-fsel"><span>Sort</span>
+        <select name="sort" class="z-select" onchange="this.form.submit()">
+          <option value="newest" selected={f.sort === 'newest'}>Newest first</option>
+          <option value="longest" selected={f.sort === 'longest'}>Longest first</option>
+          <option value="pages" selected={f.sort === 'pages'}>Most pages</option>
+          <option value="frustrated" selected={f.sort === 'frustrated'}>Most frustrated</option>
+        </select>
+      </label>
+      <noscript><button class="z-btn z-btn-secondary">Apply</button></noscript>
+      {(activeFilters > 0 || f.signal) && <a class="z-clear" href={link({ device: undefined, source: undefined, country: undefined, page: undefined, signal: undefined })}>Clear filters</a>}
+    </form>
+
+    <section class="z-card z-sessions">
+      <div class="z-ribbon-legend" aria-hidden="true">
+        <span><i class="z-legend-seg"></i>Page, width = time spent, fill = scrolled</span>
+        <span><i class="z-tick ok"></i>Click</span>
+        <span><i class="z-tick dead"></i>Dead click</span>
+        <span><i class="z-tick rage"></i>Rage click</span>
       </div>
-      <div class="z-list">
-        {rows.length === 0 && <p class="muted" style="margin:0;font-size:13px">No sessions in this period.</p>}
-        {rows.slice(0, PER).map((s) => <SessionRow s={s} envId={env.id} />)}
-      </div>
-      {(page > 0 || more) && (
-        <div style="display:flex;gap:8px;margin-top:16px">
-          {page > 0 && <a class="z-btn z-btn-secondary" href={pageLink(page - 1)}>Newer</a>}
-          {more && <a class="z-btn z-btn-secondary" href={pageLink(page + 1)}>Older</a>}
+      {list.length === 0 && (
+        <div class="z-empty-small">
+          <b>No sessions match.</b>
+          <span class="muted">{sum.total === 0 && !activeFilters && !f.signal ? 'Visits appear here a few seconds after they happen.' : 'Try a wider date range or fewer filters.'}</span>
+        </div>
+      )}
+      {groups.map((g) => (
+        <div class="z-sday">
+          {g.day && <h3 class="z-sday-head">{g.day}<span>{g.items.length}</span></h3>}
+          <div class="z-sc-list">{g.items.map((s) => <SessionCard s={s} envId={env.id} query={detailQuery} />)}</div>
+        </div>
+      ))}
+      {(n > 0 || more) && (
+        <div class="z-pager">
+          {n > 0 ? <a class="z-btn z-btn-secondary" href={link({ n: n > 1 ? String(n - 1) : undefined })}>← Newer</a> : <span></span>}
+          <span class="muted">{n * PER + 1}–{n * PER + list.length} of {fmt.int(f.signal ? (sum as any)[f.signal] : sum.total)}</span>
+          {more ? <a class="z-btn z-btn-secondary" href={link({ n: String(n + 1) })}>Older →</a> : <span></span>}
         </div>
       )}
     </section>
