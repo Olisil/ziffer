@@ -1,0 +1,21 @@
+---
+import App from '../layouts/App.astro';
+import AppHeader from './AppHeader.astro';
+import { listProjects, url } from '../lib/server';
+import type { User } from '../lib/users';
+interface Props { user: User; title: string; tab: 'dashboard' | 'projects' | 'users' | 'billing'; eyebrow?: string }
+const { user, title, tab, eyebrow = 'Ziffer admin · Nassau' } = Astro.props;
+const projects = await listProjects(user.id);
+const tabs = [['dashboard', 'Dashboard', 'admin'], ['projects', 'Projects', 'admin/projects'], ['users', 'People & plans', 'admin/users'], ['billing', 'Payments', 'admin/billing']] as const;
+---
+<App title={`${title} · Admin`}>
+  <AppHeader projects={projects} />
+  <main class="z-main z-admin">
+    <div class="z-title-row">
+      <div><div class="z-eyebrow">{eyebrow}</div><h1 class="z-h1">{title}</h1></div>
+      <div class="z-spacer"></div>
+      <nav class="z-seg z-admin-nav" aria-label="Admin">{tabs.map(([k, l, p]) => <a href={url(p)} aria-current={String(tab === k)}>{l}</a>)}</nav>
+    </div>
+    <slot />
+  </main>
+</App>

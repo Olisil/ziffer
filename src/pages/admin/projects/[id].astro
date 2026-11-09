@@ -1,0 +1,113 @@
+---
+import AdminShell from '../../../components/AdminShell.astro';
+import Bars from '../../../components/Bars.astro';
+import { adminInvite, adminProject, dailySessions, requireOwner } from '../../../lib/admin';
+import { actorFor, remove, setAccess, transfer } from '../../../lib/members';
+import { fmt } from '../../../lib/page';
+import { url } from '../../../lib/server';
+import { money, seatPrice } from '../../../lib/stripe';
+import { PLAN_LABEL, type Plan } from '../../../lib/users';
+
+const user = await requireOwner(Astro);
+if (user instanceof Response) return user;
+const pid = String(Astro.params.id);
+let error = '', notice = '';
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const a = await actorFor(user, pid), target = String(f.get('user') || '');
+  try {
+    switch (String(f.get('action'))) {
+      case 'access': await setAccess(a, target, String(f.get('access')) as any, Astro.request); notice = 'Access changed.'; break;
+      case 'remove': await remove(a, target, Astro.request); notice = 'Removed from the project.'; break;
+      case 'transfer': await transfer(a, target, Astro.request); notice = 'Project ownership handed over.'; break;
+      case 'invite': {
+        const r = await adminInvite(user, { email: String(f.get('email') || ''), plan: String(f.get('plan')) as Plan, projectId: pid, access: String(f.get('access')) as any }, Astro.request);
+        notice = r.existing ? 'Added to the project.' : `Invitation sent. Link: ${r.link}`; break;
+      }
+    }
+  } catch (e: any) { error = e.message; }
+}
+const d = await adminProject(pid);
+if (!d) return new Response('Not found', { status: 404 });
+const { project: p, members, envs, invoices, days, invites } = d;
+const usage = await dailySessions({ projectId: pid });
+const price = await seatPrice();
+const seats = members.filter((m) => m.access === 'pro' && (m.plan === 'pro' || m.plan === 'basic')).length;
+const month = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' }).slice(0, 7);
+const seatDays = days.filter((x) => x.day.startsWith(month)).reduce((a, x) => a + x.seats, 0);
+const dim = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join('');
+---
+<AdminShell user={user} title={p.name} tab="projects" eyebrow="All projects">
+  <a class="z-back" href={url('admin/projects')}>← All projects</a>
+  {notice && <p class="z-flash" role="status">{notice}</p>}
+  {error && <p class="z-flash bad" role="alert">{error}</p>}
+  <section class="z-admin-kpis">
+    <div class="z-akpi"><span>Sessions, 30 days</span><b>{fmt.int(usage.counts.reduce((a, b) => a + b, 0))}</b><small>{envs.length} of 4 environments</small></div>
+    <div class="z-akpi"><span>People</span><b>{members.length}</b><small>{members.filter((m) => m.access === 'pro').length} Pro · {members.filter((m) => m.access === 'basic').length} Basic</small></div>
+    <div class="z-akpi"><span>Paid seats</span><b>{seats}</b><small>{price ? `≈ ${money(Math.round((seatDays / dim) * price.amount), price.currency)} so far this month` : 'No seat price set'}</small></div>
+    <div class="z-akpi"><span>Billing</span><b>{p.billing_status === 'past_due' ? 'Payment failed' : p.stripe_customer ? 'Card on file' : seats ? 'No card yet' : 'Free'}</b><small>Created {fmt.date(p.created)}</small></div>
+  </section>
+
+  <section class="z-card">
+    <div class="z-card-head"><span class="z-card-title">Sessions per day</span><span class="z-card-hint">all environments, last 30 days</span></div>
+    <Bars counts={usage.counts} from={usage.from} bucket={864e5} label="Sessions per day" />
+  </section>
+
+  <section class="z-card">
+    <div class="z-card-head"><span class="z-card-title">Environments</span></div>
+    <div class="z-table-wrap"><table class="z-table">
+      <thead><tr><th>Environment</th><th>Site claim</th><th class="num">Sessions, 30 d</th><th class="num">Page views</th><th class="num">Versions</th><th class="num">Avg. SEO</th><th>Last visit</th><th></th></tr></thead>
+      <tbody>{envs.map((e) => (
+        <tr>
+          <td><b>{e.name}</b>{e.domain && <small class="muted"> {e.domain}</small>}</td>
+          <td>{e.kind !== 'web' ? '—' : e.verified_at ? <span class="z-chip good">Confirmed {fmt.date(e.verified_at)}</span> : <span class="z-chip warn">Waiting for first visit</span>}</td>
+          <td class="num">{fmt.int(e.sessions)}</td><td class="num">{fmt.int(e.pages)}</td><td class="num">{e.versions}</td><td class="num">{e.audit ?? '—'}</td>
+          <td>{e.last ? fmt.date(e.last) : '—'}</td>
+          <td><a class="z-btn z-btn-ghost" href={url(`e/${e.id}`)}>Open dashboard</a></td>
+        </tr>
+      ))}</tbody>
+    </table></div>
+  </section>
+
+  <section class="z-grid z-row-2-1">
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">People and roles</span></div>
+      <ul class="z-members">
+        {members.map((m) => (
+          <li>
+            {m.image_url ? <img class="z-avatar-s" src={m.image_url} alt="" width="32" height="32" /> : <span class="z-avatar-s">{initials(m.name || m.email)}</span>}
+            <span><a href={url(`admin/users/${m.user_id}`)}><b>{m.name || m.email}</b></a><small class="muted"> {m.email} · {PLAN_LABEL[m.plan as Plan] ?? m.plan} plan</small></span>
+            {m.role === 'owner' ? <span class="z-chip owner">Project owner</span> : (
+              <form method="post"><input type="hidden" name="action" value="access" /><input type="hidden" name="user" value={m.user_id} />
+                <select class="z-select z-select-s" name="access" onchange="this.form.submit()" aria-label={`Access for ${m.email}`}><option value="pro" selected={m.access === 'pro'}>Pro · edit</option><option value="basic" selected={m.access === 'basic'}>Basic · view</option></select></form>
+            )}
+            {m.role === 'owner' ? <span></span> : (
+              <span class="z-actions">
+                {m.plan !== 'basic' && <form method="post"><input type="hidden" name="action" value="transfer" /><input type="hidden" name="user" value={m.user_id} /><button class="z-btn z-btn-ghost" type="submit">Make owner</button></form>}
+                <form method="post"><input type="hidden" name="action" value="remove" /><input type="hidden" name="user" value={m.user_id} /><button class="z-btn z-btn-ghost danger" type="submit">Remove</button></form>
+              </span>
+            )}
+          </li>
+        ))}
+        {invites.map((i) => <li class="pending"><span class="z-avatar-s">✉</span><span><b>{i.email}</b><small class="muted"> invited · expires {fmt.date(i.expires)}</small></span><span class="z-chip">{i.access === 'pro' ? 'Pro' : 'Basic'}</span><span></span></li>)}
+      </ul>
+      <form method="post" class="z-admin-invite compact">
+        <input type="hidden" name="action" value="invite" />
+        <input class="z-input" type="email" name="email" required placeholder="Invite by email" aria-label="Email" />
+        <select class="z-select" name="plan" aria-label="Plan">{(['pro_free', 'pro', 'basic'] as Plan[]).map((x) => <option value={x}>{PLAN_LABEL[x]}</option>)}</select>
+        <select class="z-select" name="access" aria-label="Access"><option value="pro">Pro · edit</option><option value="basic">Basic · view</option></select>
+        <button class="z-btn z-btn-primary" type="submit">Invite</button>
+      </form>
+      <p class="muted z-small">A new person’s plan is used only if they don’t have an account yet; existing accounts keep their plan unless you change it under People &amp; plans.</p>
+    </div>
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Invoices</span></div>
+      {invoices.length === 0 ? <p class="muted z-small">No invoices yet. Paid seats are invoiced after each full month.</p> : (
+        <ul class="z-activity">{invoices.map((i) => <li><span class="grow"><b>{i.month}</b> <span class="muted">· {(i.seat_days / new Date(Number(i.month.slice(0, 4)), Number(i.month.slice(5, 7)), 0).getDate()).toFixed(1)} seat-months</span></span><span>{money(i.amount, i.currency)}</span><span class:list={['z-chip', i.status === 'paid' ? 'good' : i.status === 'failed' ? 'bad' : '']}>{i.status}</span></li>)}</ul>
+      )}
+      <div class="z-card-head" style="margin-top:16px"><span class="z-card-title">Seats this month</span></div>
+      <p class="muted z-small">{seatDays} seat-days in {month} ({(seatDays / dim).toFixed(2)} seat-months).</p>
+    </div>
+  </section>
+</AdminShell>

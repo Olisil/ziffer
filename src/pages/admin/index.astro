@@ -1,0 +1,83 @@
+---
+import AdminShell from '../../components/AdminShell.astro';
+import Bars from '../../components/Bars.astro';
+import Sparkline from '../../components/Sparkline.astro';
+import { requireOwner, serviceStats } from '../../lib/admin';
+import { fmt } from '../../lib/page';
+import { url } from '../../lib/server';
+import { money, seatPrice, stripeEnabled, stripeTestMode } from '../../lib/stripe';
+import { PLAN_LABEL } from '../../lib/users';
+import { mailEnabled } from '../../lib/mail';
+
+const user = await requireOwner(Astro);
+if (user instanceof Response) return user;
+const s = await serviceStats();
+const price = await seatPrice();
+const mrr = price ? s.seats * price.amount : null;
+const planOrder = ['owner', 'pro_free', 'pro', 'basic'] as const;
+const planTotal = planOrder.reduce((a, k) => a + (s.plans[k] ?? 0), 0) || 1;
+const max = Math.max(1, ...s.top.map((t) => t.sessions));
+const change = s.prev.sessions ? Math.round(((s.traffic.sessions - s.prev.sessions) / s.prev.sessions) * 100) : null;
+const mb = (b: number) => `${(b / 1048576).toFixed(1)} MB`;
+const icon: Record<string, string> = { user: '👤', project: '📁', version: '🔀', confirmed: '✅' };
+---
+<AdminShell user={user} title="Service overview" tab="dashboard">
+  <section class="z-admin-status">
+    <span class:list={['z-signal', stripeEnabled() ? 'engaged' : 'dead']}>Stripe {stripeEnabled() ? (stripeTestMode() ? 'connected · test mode' : 'connected · live') : 'not connected'}</span>
+    <span class:list={['z-signal', mailEnabled() ? 'engaged' : 'dead']}>Email {mailEnabled() ? 'connected' : 'not connected'}</span>
+    <span class:list={['z-signal', price ? 'engaged' : 'dead']}>{price ? `Seat price ${money(price.amount, price.currency)} / month` : 'No seat price set'}</span>
+  </section>
+
+  <section class="z-admin-kpis">
+    <a class="z-akpi" href={url('admin/users')}><span>People</span><b>{fmt.int(s.users.n)}</b><small>{s.users.active7} active this week · {s.users.new30} new in 30 days</small></a>
+    <a class="z-akpi" href={url('admin/projects')}><span>Projects</span><b>{fmt.int(s.projects.n)}</b><small>{s.envs.n} environments · {s.envs.confirmed} confirmed sites</small></a>
+    <div class="z-akpi"><span>Sessions, 30 days</span><b>{fmt.int(s.traffic.sessions)}</b><small>{change === null ? `${fmt.int(s.traffic.visitors)} visitors` : <span class={change >= 0 ? 'up' : 'down'}>{change >= 0 ? '+' : ''}{change}% vs previous 30 days</span>}</small></div>
+    <a class="z-akpi" href={url('admin/billing')}><span>Paid seats</span><b>{fmt.int(s.seats)}</b><small>{mrr !== null ? `≈ ${money(mrr, price!.currency)} per month` : 'Set a seat price to see revenue'}</small></a>
+  </section>
+
+  <section class="z-grid z-row-2-1">
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Sessions across all sites</span><span class="z-card-hint">last 30 days · {fmt.int(s.traffic.pageviews)} page views</span></div>
+      <Bars counts={s.daily} from={Date.now() - 30 * 864e5} bucket={864e5} label="Sessions per day" />
+    </div>
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Plans</span><span class="z-card-hint">{fmt.int(s.users.n)} people</span></div>
+      <div class="z-planbar" role="img" aria-label="People per plan">
+        {planOrder.map((k) => (s.plans[k] ? <i class={`p-${k}`} style={`flex-grow:${s.plans[k]}`} title={`${PLAN_LABEL[k]}: ${s.plans[k]}`}></i> : null))}
+      </div>
+      <ul class="z-planlist">{planOrder.map((k) => <li><i class={`p-${k}`}></i>{PLAN_LABEL[k]}<b>{s.plans[k] ?? 0}</b><span class="muted">{Math.round(((s.plans[k] ?? 0) / planTotal) * 100)}%</span></li>)}</ul>
+      <div class="z-card-head" style="margin-top:16px"><span class="z-card-title">New people per week</span></div>
+      <div class="z-trend"><Sparkline values={s.signups} height={44} label="Sign-ups per week, last 12 weeks" /></div>
+    </div>
+  </section>
+
+  <section class="z-grid z-row-2-1" style="align-items:start">
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Busiest projects</span><a class="z-card-hint" href={url('admin/projects')}>All projects</a></div>
+      <div class="z-list">
+        {s.top.map((t) => (
+          <a class="z-list-row" href={url(`admin/projects/${t.id}`)}>
+            <span class="grow"><b>{t.name}</b> <span class="muted">· {t.members} {t.members === 1 ? 'person' : 'people'} · {t.envs} env.</span></span>
+            <span class="z-meter wide"><i style={`width:${Math.round((t.sessions / max) * 100)}%`}></i></span>
+            <span class="num">{fmt.int(t.sessions)}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+    <div class="z-grid" style="align-content:start">
+      <div class="z-card">
+        <div class="z-card-head"><span class="z-card-title">Storage and work</span></div>
+        <dl class="z-kv">
+          <div><dt>Sessions stored</dt><dd>{fmt.int(s.stored.sessions)}</dd></div>
+          <div><dt>Clicks stored</dt><dd>{fmt.int(s.stored.clicks)}</dd></div>
+          <div><dt>Page pictures</dt><dd>{fmt.int(s.snaps.n)} · {mb(s.snaps.bytes)}</dd></div>
+          <div><dt>Audits, 30 days</dt><dd>{fmt.int(s.audits.n)}{s.audits.n ? ` · SEO ${s.audits.avg_seo} · AEO ${s.audits.avg_aeo}` : ''}</dd></div>
+        </dl>
+      </div>
+      <div class="z-card">
+        <div class="z-card-head"><span class="z-card-title">Recent activity</span></div>
+        <ul class="z-activity">{s.recent.map((r) => <li><a href={url(r.link)}><span aria-hidden="true">{icon[r.kind]}</span><span class="grow">{r.text}</span><span class="muted">{fmt.date(r.at)}</span></a></li>)}</ul>
+      </div>
+    </div>
+  </section>
+</AdminShell>

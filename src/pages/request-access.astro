@@ -1,0 +1,43 @@
+---
+// Someone found that a site is already in Ziffer and asks that project's owner for access.
+import App from '../layouts/App.astro';
+import AppHeader from '../components/AppHeader.astro';
+import { db, id, listProjects, ownerId, url } from '../lib/server';
+import { isDevUser } from '../lib/page';
+import { me } from '../lib/users';
+import { appOrigin, esc, notify, projectRecipients } from '../lib/notify';
+
+const owner = ownerId(Astro);
+if (!owner) return Astro.redirect(url('sign-in'));
+if (Astro.request.method !== 'POST') return Astro.redirect(url(''));
+const user = (await me(Astro))!;
+const form = await Astro.request.formData();
+const env = await db().prepare('SELECT id, project_id, domain FROM environments WHERE id = ?').bind(String(form.get('env') || '')).first<{ id: string; project_id: string; domain: string | null }>();
+let done = false;
+if (env) {
+  const open = await db().prepare("SELECT 1 FROM access_requests WHERE project_id = ? AND user_id = ? AND status = 'open'").bind(env.project_id, owner).first();
+  if (!open) {
+    const message = String(form.get('message') || '').trim().slice(0, 300);
+    await db().prepare('INSERT INTO access_requests (id, project_id, user_id, email, domain, message, created) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(id(10), env.project_id, owner, user.email, env.domain, message || null, Date.now()).run();
+    await notify(await projectRecipients(env.project_id, 'owner'), {
+      kind: 'members', projectId: env.project_id,
+      title: `${user.name || user.email} asks for access to ${env.domain}`,
+      lines: [`<b>${esc(user.name || '')}</b> (${esc(user.email || '')}) tried to add <b>${esc(env.domain || '')}</b> to Ziffer and is asking to join your project instead.`, ...(message ? [`“${esc(message)}”`] : []), 'You can invite them as Pro or Basic, or decline, in Settings → Projects.'],
+      link: url('settings?tab=projects'), button: 'Review the request',
+    }, appOrigin(Astro.request));
+  }
+  done = true;
+}
+const projects = await listProjects(owner);
+---
+<App title="Request sent">
+  <AppHeader projects={projects} devUser={isDevUser()} />
+  <main class="z-main" style="max-width:640px">
+    <section class="z-empty">
+      <h1 class="z-h1" style="font-size:22px">{done ? 'Request sent' : 'That site no longer exists'}</h1>
+      <p class="muted" style="margin:0">{done ? 'The project’s owner has been told. You’ll get an invitation by email if they add you.' : 'Try adding it again.'}</p>
+      <a class="z-btn z-btn-secondary" href={url('')}>Back to overview</a>
+    </section>
+  </main>
+</App>

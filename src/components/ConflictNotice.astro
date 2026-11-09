@@ -1,0 +1,18 @@
+---
+// Shown when a site is already in Ziffer: explain, and offer to ask the project for access.
+import { url } from '../lib/server';
+import type { Conflict } from '../lib/claims';
+interface Props { message: string; conflict?: Conflict }
+const { message, conflict } = Astro.props;
+---
+<div class="z-conflict" role="alert">
+  <p>{message}</p>
+  {conflict && !conflict.mine && (
+    <form method="post" action={url('request-access')} class="z-conflict-form">
+      <input type="hidden" name="env" value={conflict.envId} />
+      <input class="z-input" name="message" maxlength="300" placeholder="A note to them (optional), e.g. who you are" />
+      <button class="z-btn z-btn-secondary" type="submit">Request access</button>
+    </form>
+  )}
+  {conflict?.mine && <a class="z-btn z-btn-secondary" href={url(`e/${conflict.envId}`)}>Open it</a>}
+</div>

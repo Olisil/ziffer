@@ -22,9 +22,10 @@ const deviceTotal = data ? data.devices.reduce((a, d) => a + d.n, 0) : 0;
 const refTotal = data ? data.referrers.reduce((a, d) => a + d.n, 0) : 0;
 ---
 <App title={`${env.name} · Dashboard`}>
-  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="dashboard" devUser={devUser} />
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="dashboard" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main">
     <TitleRow eyebrow={`${project.name} · ${env.name} · ${env.kind === 'web' ? 'Web' : 'Virtual tour'}`} title="Dashboard" range={r.key} showRange={env.kind === 'web'}>
+      {env.kind === 'web' && ctx.canEdit && <a class="z-btn z-btn-secondary" href={url(`p/${project.id}/report?e=${env.id}|${r.key === 'custom' ? '30d' : r.key === '24h' ? '7d' : r.key}`)}>Export report</a>}
       {env.kind === 'web' && <a class="z-btn z-btn-secondary" href={url(`e/${env.id}/settings`)}>Install snippet</a>}
     </TitleRow>
 

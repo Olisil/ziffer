@@ -7,7 +7,7 @@ import { listVersions, type VersionView } from '../../../lib/versions';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
-const { env, project, projects, environments, devUser } = ctx;
+const { env, project, projects, environments, devUser, canEdit } = ctx;
 if (env.kind !== 'web') return Astro.redirect(url(`e/${env.id}`));
 
 let notice = '';
@@ -65,7 +65,7 @@ const order = [...versions].reverse();
 const saved = Astro.url.searchParams.get('saved');
 ---
 <App title={`${env.name} · Versions`}>
-  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="versions" devUser={devUser} />
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="versions" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main" style="max-width:1080px">
     <div class="z-title-row">
       <div>
@@ -97,11 +97,11 @@ const saved = Astro.url.searchParams.get('saved');
             <article class="z-card">
               <header class="z-vhead">
                 <span class="z-vnum">{v.n}.0</span>
-                <form method="post" class="z-vname">
+                {canEdit ? <form method="post" class="z-vname">
                   <input type="hidden" name="action" value="rename" /><input type="hidden" name="version" value={v.id} />
                   <input class="z-input" name="name" maxlength="60" value={v.name ?? ''} placeholder={`${env.name} ${v.n}.0`} aria-label="Version name" />
                   <button class="z-btn z-btn-secondary" type="submit">{saved === v.id ? 'Saved' : 'Rename'}</button>
-                </form>
+                </form> : <span class="z-vname"><b>{v.label}</b></span>}
                 {current && <span class="z-chip z-chip-live">Current</span>}
               </header>
               <div class="z-vmeta">
@@ -131,7 +131,7 @@ const saved = Astro.url.searchParams.get('saved');
                 <a class="z-btn z-btn-secondary" href={rangeLink(v, '/heatmaps')}>Heatmaps</a>
                 <a class="z-btn z-btn-secondary" href={rangeLink(v, '/sessions')}>Sessions</a>
                 <span class="z-spacer"></span>
-                {i > 0 && (
+                {i > 0 && canEdit && (
                   <details class="z-confirm">
                     <summary class="z-link">Not a real new version?</summary>
                     <form method="post">
@@ -145,10 +145,10 @@ const saved = Astro.url.searchParams.get('saved');
               {v.merged.length > 0 && (
                 <div class="z-vmerged">
                   {v.merged.map((m) => (
-                    <form method="post" class="z-vmerged-row">
+                    <form method="post" class="z-vmerged-row" data-readonly={!canEdit}>
                       <input type="hidden" name="action" value="unmerge" /><input type="hidden" name="version" value={m.id} />
                       <span class="muted">Merged in: {m.name || 'a detected change'} · appeared {whenFull(m.detected_at)}</span>
-                      <button class="z-link" type="submit">Undo merge</button>
+                      {canEdit && <button class="z-link" type="submit">Undo merge</button>}
                     </form>
                   ))}
                 </div>

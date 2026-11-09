@@ -10,7 +10,7 @@ import SnapshotView from '../../../components/SnapshotView.astro';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
-const { env, project, projects, environments, devUser } = ctx;
+const { env, project, projects, environments, devUser, canEdit } = ctx;
 if (env.kind !== 'web') return Astro.redirect(url(`e/${env.id}`));
 const r = rangeOf(Astro.url);
 const pages = await heatmapPages(env.id, r.from, r.to);
@@ -46,7 +46,7 @@ const overlay = mode === 'scroll'
 const rageCount = data.clicks.filter((c) => c.rage).length;
 ---
 <App title={`${env.name} · Heatmaps`}>
-  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="heatmaps" devUser={devUser} />
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="heatmaps" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main">
     <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} title="Heatmaps" range={r.key} />
     <section class="z-card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
@@ -92,7 +92,7 @@ const rageCount = data.clicks.filter((c) => c.rage).length;
         {snap ? (
           <>
             <span class="muted">Page snapshot from {fmt.date(snap.ts)}, {snap.vw}×{snap.vh}. Scroll inside the frame. It refreshes every few days as visitors arrive.</span>
-            <form method="post"><input type="hidden" name="action" value="retake" /><button class="z-btn z-btn-secondary" type="submit">Retake snapshot</button></form>
+            {canEdit && <form method="post"><input type="hidden" name="action" value="retake" /><button class="z-btn z-btn-secondary" type="submit">Retake snapshot</button></form>}
           </>
         ) : (
           <>

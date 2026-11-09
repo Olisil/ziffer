@@ -60,7 +60,7 @@ const chapters = views.map((v, i) => {
 const tech = [s.browser, s.os].filter(Boolean).join(' on ');
 ---
 <App title="Session">
-  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} />
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main">
     <nav class="z-story-nav">
       <a href={back} class="z-back">← All sessions</a>

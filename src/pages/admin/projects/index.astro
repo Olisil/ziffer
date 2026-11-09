@@ -1,0 +1,33 @@
+---
+import AdminShell from '../../../components/AdminShell.astro';
+import { adminProjects, requireOwner } from '../../../lib/admin';
+import { fmt } from '../../../lib/page';
+import { url } from '../../../lib/server';
+
+const user = await requireOwner(Astro);
+if (user instanceof Response) return user;
+const q = (Astro.url.searchParams.get('q') || '').toLowerCase();
+const rows = (await adminProjects()).filter((p) => !q || `${p.name} ${p.owner_name} ${p.owner_email}`.toLowerCase().includes(q));
+const max = Math.max(1, ...rows.map((r) => r.sessions));
+const status = (s: string | null, seats: number) => s === 'past_due' ? ['bad', 'Payment failed'] : s === 'active' ? ['good', 'Card on file'] : seats ? ['warn', 'No card yet'] : ['', 'Free'];
+---
+<AdminShell user={user} title="All projects" tab="projects">
+  <section class="z-card">
+    <div class="z-card-head">
+      <span class="z-card-title">{rows.length} {rows.length === 1 ? 'project' : 'projects'}</span>
+      <form method="get" class="z-admin-filter"><input class="z-input" name="q" value={q} placeholder="Search project or owner" aria-label="Search projects" /></form>
+    </div>
+    <div class="z-table-wrap"><table class="z-table">
+      <thead><tr><th>Project</th><th>Project owner</th><th class="num">People</th><th class="num">Env.</th><th>Sessions, 30 d</th><th class="num">Paid seats</th><th>Billing</th><th>Created</th></tr></thead>
+      <tbody>{rows.map((p) => { const [tone, label] = status(p.billing_status, p.seats); return (
+        <tr>
+          <td><a href={url(`admin/projects/${p.id}`)}><b>{p.name}</b></a></td>
+          <td>{p.owner_name || p.owner_email || '—'}{p.owner_name && p.owner_email ? <small class="muted"> {p.owner_email}</small> : ''}</td>
+          <td class="num">{p.members}</td><td class="num">{p.envs}</td>
+          <td><span class="z-inline-meter"><span class="z-meter"><i style={`width:${Math.round((p.sessions / max) * 100)}%`}></i></span>{fmt.int(p.sessions)}</span></td>
+          <td class="num">{p.seats}</td><td><span class:list={['z-chip', tone]}>{label}</span></td><td>{fmt.date(p.created)}</td>
+        </tr>
+      ); })}</tbody>
+    </table></div>
+  </section>
+</AdminShell>

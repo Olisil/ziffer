@@ -417,8 +417,13 @@ export async function runAudit(a: AuditRow) {
   const seo = scoreOf(checks, 'seo'), aeo = scoreOf(checks, 'aeo'), tech = scoreOf(checks, 'tech');
   const overall = seo === null ? null : Math.round(((seo ?? 0) + (aeo ?? 0) + (tech ?? 0)) / 3);
   const version = a.version_id ?? (await DB.prepare('SELECT id FROM site_versions WHERE env_id = ? AND merged_into IS NULL ORDER BY detected_at DESC LIMIT 1').bind(a.env_id).first<{ id: string }>())?.id ?? null;
+  const before = await DB.prepare("SELECT overall FROM audits WHERE env_id = ? AND path = ? AND status = 'done' ORDER BY ran_at DESC LIMIT 1").bind(a.env_id, a.path).first<{ overall: number | null }>();
   await DB.prepare(`UPDATE audits SET status = 'done', ran_at = ?, version_id = ?, seo = ?, aeo = ?, tech = ?, overall = ?, url = ?, http_status = ?, fetch_ms = ?, bytes = ?, results = ?, error = NULL WHERE id = ?`)
     .bind(Date.now(), version, seo, aeo, tech, overall, res.url, res.status, res.ms, res.bytes, JSON.stringify({ title: pageTitle, checks }), a.id).run();
+  if (before?.overall != null && overall != null && before.overall - overall >= 10 && a.trigger !== 'manual') {
+    const { tellAuditDrop } = await import('./jobs');
+    await tellAuditDrop(a.env_id, a.path, before.overall, overall, 'https://ziffer.webflow.io').catch(() => {});
+  }
 }
 
 /* ---------------- Reading ---------------- */

@@ -1,0 +1,64 @@
+---
+import AdminShell from '../../../components/AdminShell.astro';
+import { adminUser, requireOwner, setPlan } from '../../../lib/admin';
+import { fmt } from '../../../lib/page';
+import { url } from '../../../lib/server';
+import { PLAN_LABEL, prefsOf, type Plan } from '../../../lib/users';
+
+const user = await requireOwner(Astro);
+if (user instanceof Response) return user;
+const uid = String(Astro.params.id);
+let error = '', notice = '';
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  try { await setPlan(user, uid, String(f.get('plan')) as Plan, Astro.request); notice = 'Plan updated.'; } catch (e: any) { error = e.message; }
+}
+const d = await adminUser(uid);
+if (!d) return new Response('Not found', { status: 404 });
+const { user: p, memberships, requests } = d;
+const prefs = prefsOf(p);
+const plans: Plan[] = ['pro_free', 'pro', 'basic'];
+const paid = memberships.filter((m) => m.access === 'pro' && (p.plan === 'pro' || p.plan === 'basic')).length;
+---
+<AdminShell user={user} title={p.name || p.email || 'Person'} tab="users" eyebrow="People & plans">
+  <a class="z-back" href={url('admin/users')}>← Everyone</a>
+  {notice && <p class="z-flash" role="status">{notice}</p>}
+  {error && <p class="z-flash bad" role="alert">{error}</p>}
+  <section class="z-admin-kpis">
+    <div class="z-akpi"><span>Plan</span><b>{PLAN_LABEL[p.plan]}</b><small>{p.plan === 'owner' ? 'Follows the owner email' : 'Change it below'}</small></div>
+    <div class="z-akpi"><span>Projects</span><b>{memberships.length}</b><small>{memberships.filter((m) => m.role === 'owner').length} as project owner</small></div>
+    <div class="z-akpi"><span>Paid seats</span><b>{paid}</b><small>Pro access on a paid plan</small></div>
+    <div class="z-akpi"><span>Last seen</span><b>{p.last_seen ? fmt.date(p.last_seen) : '—'}</b><small>Joined {fmt.date(p.created)}</small></div>
+  </section>
+  <section class="z-grid z-row-2-1">
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Projects and roles</span></div>
+      {memberships.length === 0 ? <p class="muted">Not in any project yet.</p> : (
+        <div class="z-table-wrap"><table class="z-table">
+          <thead><tr><th>Project</th><th>Role</th><th>Access</th><th class="num">Env.</th><th class="num">Sessions, 30 d</th><th>Since</th></tr></thead>
+          <tbody>{memberships.map((m) => (
+            <tr><td><a href={url(`admin/projects/${m.project_id}`)}><b>{m.name}</b></a></td><td>{m.role === 'owner' ? <span class="z-chip owner">Project owner</span> : 'Member'}</td>
+              <td><span class:list={['z-chip', m.access]}>{m.access === 'pro' ? 'Pro · edit' : 'Basic · view'}</span></td><td class="num">{m.envs}</td><td class="num">{fmt.int(m.sessions)}</td><td>{fmt.date(m.created)}</td></tr>
+          ))}</tbody>
+        </table></div>
+      )}
+      {requests.length > 0 && (<><div class="z-card-head" style="margin-top:16px"><span class="z-card-title">Access requests</span></div>
+        <ul class="z-activity">{requests.map((r) => <li><span class="grow">{r.project_name}</span><span class="muted">{r.status} · {fmt.date(r.created)}</span></li>)}</ul></>)}
+    </div>
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Account</span></div>
+      <dl class="z-kv">
+        <div><dt>Email</dt><dd>{p.email || '—'} {p.email_verified ? <span class="z-chip pro">verified</span> : <span class="z-chip">not verified</span>}</dd></div>
+        <div><dt>Weekly report</dt><dd>{prefs.weekly ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][prefs.weeklyDay] : 'Off'}</dd></div>
+        <div><dt>Email notifications</dt><dd>{prefs.email ? 'On' : 'Off'}</dd></div>
+      </dl>
+      {p.plan !== 'owner' && (
+        <form method="post" class="z-admin-plan">
+          <span class="z-card-title">Plan</span>
+          {plans.map((x) => <label class="z-radio-card"><input type="radio" name="plan" value={x} checked={p.plan === x} /><span><b>{PLAN_LABEL[x]}</b><small class="muted">{{ pro_free: 'Edits everything, free', pro: 'Edits everything, billed per seat', basic: 'Views invited projects' }[x]}</small></span></label>)}
+          <button class="z-btn z-btn-primary" type="submit">Save plan</button>
+        </form>
+      )}
+    </div>
+  </section>
+</AdminShell>

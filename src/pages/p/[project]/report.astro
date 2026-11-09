@@ -1,0 +1,128 @@
+---
+// Report export: choose environments and periods (date ranges or site versions) and sections, then view a
+// print-ready report (Save as PDF from the print dialog) or download the numbers as CSV.
+import App from '../../../layouts/App.astro';
+import AppHeader from '../../../components/AppHeader.astro';
+import Bars from '../../../components/Bars.astro';
+import Logo from '../../../components/Logo.astro';
+import { listEnvironments, listProjects, ownerId, url } from '../../../lib/server';
+import { fmt, isDevUser } from '../../../lib/page';
+import { listVersions } from '../../../lib/versions';
+import { buildReport, SECTIONS } from '../../../lib/report';
+import { readChoices, reportProject } from '../../../lib/report-access';
+
+const r = await reportProject(Astro);
+if ('error' in r && r.error && r.error !== 403) return r.error === 401 ? Astro.redirect(url('sign-in')) : new Response('Not found', { status: 404 });
+const project = r.project!;
+const blocked = r.error === 403;
+const projects = await listProjects(ownerId(Astro)!);
+const envs = (await listEnvironments(project.id)).filter((e) => e.kind === 'web');
+const versionsByEnv = new Map(await Promise.all(envs.map(async (e) => [e.id, await listVersions(e.id, e.name)] as const)));
+const { choices, sections } = readChoices(Astro.url);
+const show = Astro.url.searchParams.get('view') === '1' && choices.length > 0 && !blocked;
+const blocks = show ? await buildReport(project.id, choices) : [];
+const csvHref = url(`p/${project.id}/report.csv${Astro.url.search}`);
+const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
+const d = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/Stockholm' });
+const delta = (a: number, b: number) => (!b ? '' : `${a >= b ? '+' : '−'}${Math.abs(Math.round(((a - b) / b) * 100))}%`);
+const tone = (n: number | null) => (n === null ? '' : n >= 85 ? 'good' : n >= 60 ? 'ok' : 'bad');
+---
+<App title={`${project.name} · Report`}>
+  <div class="z-noprint"><AppHeader projects={projects} project={project} devUser={isDevUser()} /></div>
+  <main class:list={['z-main', { 'z-report-main': show }]} style="max-width:1000px">
+    {!show && (
+      <>
+        <div class="z-title-row"><div><div class="z-eyebrow">{project.name}</div><h1 class="z-h1">Export a report</h1></div></div>
+        {blocked ? <p class="z-card" style="margin:0">Reports are part of Pro. You have Basic (read-only) access to {project.name}.</p> : envs.length === 0 ? <p class="z-card" style="margin:0">This project has no websites yet.</p> : (
+          <form method="get" class="z-card z-report-form">
+            <input type="hidden" name="view" value="1" />
+            <h3>What to include</h3>
+            <p class="muted z-small">Pick periods per environment: a date range, or one or more site versions (each becomes its own section, so versions can be compared).</p>
+            {envs.map((e) => (
+              <fieldset class="z-report-env">
+                <legend><b>{e.name}</b> <span class="muted">{e.domain}</span></legend>
+                <div class="z-report-opts">
+                  {(['7d', '30d', '90d'] as const).map((p) => (
+                    <label class="z-check-pill"><input type="checkbox" name="e" value={`${e.id}|${p}`} checked={p === '30d' && choices.length === 0} />{{ '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days' }[p]}</label>
+                  ))}
+                  {(versionsByEnv.get(e.id) ?? []).map((v) => (
+                    <label class="z-check-pill version"><input type="checkbox" name="e" value={`${e.id}|v:${v.id}`} />{v.label} <span class="muted">from {fmt.date(v.from)}</span></label>
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+            <h3>Sections</h3>
+            <div class="z-report-sections">
+              {SECTIONS.map(([k, title, hint]) => (
+                <label class="z-switch-row"><span><b>{title}</b><span class="muted">{hint}</span></span><input type="checkbox" class="z-switch" name="s" value={k} checked /></label>
+              ))}
+            </div>
+            <div class="z-report-actions">
+              <button class="z-btn z-btn-primary" type="submit">Create report</button>
+              <button class="z-btn z-btn-secondary" type="submit" formaction={url(`p/${project.id}/report.csv`)}>Download CSV</button>
+            </div>
+          </form>
+        )}
+      </>
+    )}
+
+    {show && (
+      <article class="z-report">
+        <div class="z-report-tools z-noprint">
+          <a class="z-back" href={url(`p/${project.id}/report${Astro.url.search.replace('view=1', 'view=0')}`)}>← Change selection</a>
+          <span class="z-spacer"></span>
+          <a class="z-btn z-btn-secondary" href={csvHref.replace('view=1&', '')}>Download CSV</a>
+          <button class="z-btn z-btn-primary" type="button" onclick="window.print()">Save as PDF / print</button>
+        </div>
+        <header class="z-report-cover">
+          <Logo id="report" height={30} />
+          <div>
+            <div class="z-eyebrow">Report · {d(Date.now())}</div>
+            <h1>{project.name}</h1>
+            <p class="muted">{blocks.map((b) => `${b.env.domain || b.env.name} — ${b.label}`).join(' · ')}</p>
+          </div>
+        </header>
+
+        {blocks.map((b) => (
+          <section class="z-report-block">
+            <h2>{b.env.domain || b.env.name} <span class="muted">· {b.label} · {d(b.from)} – {d(b.to)}</span></h2>
+            {sections.has('summary') && (
+              <div class="z-report-kpis">
+                {[['Visitors', fmt.int(b.dash.now.visitors), delta(b.dash.now.visitors, b.dash.prev.visitors)], ['Sessions', fmt.int(b.dash.now.sessions), delta(b.dash.now.sessions, b.dash.prev.sessions)], ['Page views', fmt.int(b.dash.now.pageviews), delta(b.dash.now.pageviews, b.dash.prev.pageviews)], ['Avg. engagement', fmt.dur(b.dash.now.engagement), delta(b.dash.now.engagement, b.dash.prev.engagement)], ['Scroll depth', fmt.pct(b.dash.now.scroll), ''], ['Rage clicks', fmt.int(b.dash.now.rage), '']].map(([k, v, dl]) => (
+                  <div><span>{k}</span><b>{v}</b>{dl && <small class={dl.startsWith('+') ? 'up' : 'down'}>{dl} vs previous</small>}</div>
+                ))}
+              </div>
+            )}
+            {sections.has('traffic') && b.dash.counts.length > 1 && <div class="z-report-chart"><h3>Sessions per {b.dash.bucket < 864e5 ? 'hour' : 'day'}</h3><Bars counts={b.dash.counts} from={b.from} bucket={b.dash.bucket} label="Sessions" /></div>}
+            <div class="z-report-cols">
+              {sections.has('pages') && (
+                <div><h3>Top pages</h3><table class="z-report-table"><thead><tr><th>Page</th><th>Views</th><th>Scroll</th></tr></thead>
+                  <tbody>{b.dash.pages.map((p) => <tr><td>{p.path}</td><td>{fmt.int(p.n)}</td><td>{fmt.pct(p.scroll)}</td></tr>)}</tbody></table></div>
+              )}
+              {sections.has('sources') && (
+                <div><h3>Sources</h3><table class="z-report-table"><tbody>{b.dash.referrers.map((x) => <tr><td>{x.referrer}</td><td>{pct(x.n, b.dash.now.sessions)}%</td></tr>)}</tbody></table>
+                  <h3>Devices</h3><table class="z-report-table"><tbody>{b.dash.devices.map((x) => <tr><td>{fmt.device(x.device)}</td><td>{pct(x.n, b.dash.now.sessions)}%</td></tr>)}</tbody></table></div>
+              )}
+            </div>
+            {sections.has('signals') && (
+              <div class="z-report-kpis three">
+                <div><span>Frustrated sessions</span><b>{pct(b.signals.frustrated, b.signals.total)}%</b><small class="muted">rage or dead clicks</small></div>
+                <div><span>Quick exits</span><b>{pct(b.signals.bounced, b.signals.total)}%</b><small class="muted">one page, under 10 s</small></div>
+                <div><span>Engaged visits</span><b>{pct(b.signals.engaged, b.signals.total)}%</b><small class="muted">a minute or more, or read to the end</small></div>
+              </div>
+            )}
+            {sections.has('versions') && b.versions.length > 0 && (
+              <div><h3>Site versions</h3><table class="z-report-table"><thead><tr><th>Version</th><th>Appeared</th><th>Sessions</th><th>Avg. engagement</th></tr></thead>
+                <tbody>{b.versions.map((v) => <tr><td>{v.label}</td><td>{d(v.from)}</td><td>{fmt.int(v.sessions)}</td><td>{fmt.dur(v.engagement)}</td></tr>)}</tbody></table></div>
+            )}
+            {sections.has('audits') && b.audits.length > 0 && (
+              <div><h3>Audits (latest check per page in the period)</h3><table class="z-report-table"><thead><tr><th>Page</th><th>SEO</th><th>AEO</th><th>Tech</th><th>Most important to fix</th></tr></thead>
+                <tbody>{b.audits.map((a) => <tr><td>{a.path}</td><td class={tone(a.seo)}>{a.seo}</td><td class={tone(a.aeo)}>{a.aeo}</td><td class={tone(a.tech)}>{a.tech}</td><td class="muted">{a.issues.join(', ') || '—'}</td></tr>)}</tbody></table></div>
+            )}
+          </section>
+        ))}
+        <footer class="z-report-foot muted">Made with Ziffer by Nassau · cookieless analytics · {d(Date.now())}</footer>
+      </article>
+    )}
+  </main>
+</App>

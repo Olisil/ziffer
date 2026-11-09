@@ -2,15 +2,22 @@
 import App from '../layouts/App.astro';
 import AppHeader from '../components/AppHeader.astro';
 import EnvironmentFields from '../components/EnvironmentFields.astro';
+import ConflictNotice from '../components/ConflictNotice.astro';
 import { db, id, listProjects, ownerId, url } from '../lib/server';
-import { createEnvironment, readEnvForm } from '../lib/forms';
+import { checkNewEnvironment, createEnvironment, readEnvForm } from '../lib/forms';
 import { isDevUser } from '../lib/page';
+import { canCreateProjects, me } from '../lib/users';
+import type { Conflict } from '../lib/claims';
 
 const owner = ownerId(Astro);
 if (!owner) return Astro.redirect(url('sign-in'));
+const user = (await me(Astro))!;
+const projects = await listProjects(owner);
+const allowed = canCreateProjects(user);
 let error = '';
+let conflict: Conflict | undefined;
 let raw: Record<string, string> = { project: '' };
-if (Astro.request.method === 'POST') {
+if (Astro.request.method === 'POST' && allowed) {
   const form = await Astro.request.formData();
   const projectName = String(form.get('project') || '').trim().slice(0, 80);
   const r = readEnvForm(form);
@@ -18,13 +25,19 @@ if (Astro.request.method === 'POST') {
   if (!projectName) error = 'Give the project a name.';
   else if (r.error) error = r.error;
   else {
-    const pid = id(10);
-    await db().prepare('INSERT INTO projects (id, owner_id, name, created) VALUES (?, ?, ?, ?)').bind(pid, owner, projectName, Date.now()).run();
-    const envId = await createEnvironment(pid, r.value!);
-    return Astro.redirect(url(`e/${envId}/settings?welcome=1`));
+    const bad = await checkNewEnvironment(null, r.value!, owner);
+    if (bad) { error = bad.error; conflict = bad.conflict; }
+    else {
+      const pid = id(10), now = Date.now();
+      await db().batch([
+        db().prepare('INSERT INTO projects (id, owner_id, name, created, payer_id) VALUES (?, ?, ?, ?, ?)').bind(pid, owner, projectName, now, owner),
+        db().prepare("INSERT INTO project_members (project_id, user_id, access, role, added_by, created) VALUES (?, ?, 'pro', 'owner', ?, ?)").bind(pid, owner, owner, now),
+      ]);
+      const envId = await createEnvironment(pid, r.value!);
+      return Astro.redirect(url(`e/${envId}/settings?welcome=1`));
+    }
   }
 }
-const projects = await listProjects(owner);
 ---
 <App title="New project">
   <AppHeader projects={projects} devUser={isDevUser()} />
@@ -32,15 +45,23 @@ const projects = await listProjects(owner);
     <div>
       <div class="z-eyebrow">{projects.length ? 'New project' : 'Welcome to Ziffer'}</div>
       <h1 class="z-h1">{projects.length ? 'Create a project' : 'Set up your first project'}</h1>
-      <p class="muted" style="margin:8px 0 0">A project groups the places you measure — a website, a virtual tour, later games and VR. You can add more environments any time.</p>
+      <p class="muted" style="margin:8px 0 0">A project groups up to four places you measure — a website, a virtual tour, later games and VR — and the people who work on them.</p>
     </div>
-    <form method="post" class="z-card z-form" style="max-width:none">
-      {error && <p role="alert" style="margin:0;color:#e5484d">{error}</p>}
-      <label class="z-field">Project name <small>Usually the client or brand, e.g. Nassau.</small>
-        <input class="z-input" name="project" required maxlength="80" placeholder="Nassau" value={raw.project} autofocus />
-      </label>
-      <EnvironmentFields values={raw} />
-      <div><button class="z-btn z-btn-primary" type="submit">Create project</button></div>
-    </form>
+    {!allowed ? (
+      <section class="z-card">
+        <p style="margin:0"><b>Your plan is Basic – Free.</b> <span class="muted">Basic gives read-only access to projects you are invited to. To create your own projects, switch to Pro in Settings → Plan & billing.</span></p>
+        <p style="margin:12px 0 0"><a class="z-btn z-btn-secondary" href={url('settings?tab=plan')}>See plans</a></p>
+      </section>
+    ) : (
+      <form method="post" class="z-card z-form" style="max-width:none">
+        {error && <ConflictNotice message={error} conflict={conflict} />}
+        <label class="z-field">Project name <small>Usually the client or brand, e.g. Nassau.</small>
+          <input class="z-input" name="project" required maxlength="80" placeholder="Nassau" value={raw.project} autofocus />
+        </label>
+        <EnvironmentFields values={raw} />
+        <p class="muted" style="margin:0;font-size:12.5px">The site is reserved for your project for 7 days and confirmed as soon as the first visit arrives through its snippet.</p>
+        <div><button class="z-btn z-btn-primary" type="submit">Create project</button></div>
+      </form>
+    )}
   </main>
 </App>

@@ -1,0 +1,128 @@
+---
+import AdminShell from '../../components/AdminShell.astro';
+import { requireOwner } from '../../lib/admin';
+import { runJobs } from '../../lib/jobs';
+import { fmt } from '../../lib/page';
+import { db, url } from '../../lib/server';
+import { getSetting, installWebhook, invoiceMonth, money, seatPrice, setSetting, stripeEnabled, stripeTestMode } from '../../lib/stripe';
+import { appOrigin } from '../../lib/notify';
+import { mailEnabled } from '../../lib/mail';
+
+const user = await requireOwner(Astro);
+if (user instanceof Response) return user;
+let notice = '', error = '';
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  try {
+    switch (String(f.get('action'))) {
+      case 'price': {
+        const amount = Math.round(Number(String(f.get('amount') || '').replace(',', '.')) * 100);
+        const currency = String(f.get('currency') || 'sek').toLowerCase();
+        if (!Number.isFinite(amount) || amount < 0 || amount > 10_000_000) throw new Error('Enter a price, for example 99.');
+        if (!['sek', 'eur', 'usd', 'nok', 'dkk', 'gbp'].includes(currency)) throw new Error('Pick a currency.');
+        await setSetting('seat_price', JSON.stringify({ amount, currency }));
+        notice = `Seat price saved: ${money(amount, currency)} per Pro seat and month.`;
+        if (stripeEnabled() && !(await getSetting('stripe_webhook_id'))) { await installWebhook(appOrigin(Astro.request)); notice += ' Stripe is set up to tell Ziffer about payments.'; }
+        break;
+      }
+      case 'webhook': await installWebhook(appOrigin(Astro.request)); notice = 'Stripe webhook installed.'; break;
+      case 'jobs': { const r = await runJobs(appOrigin(Astro.request), true); notice = `Background jobs ran: ${Object.entries(r).map(([k, v]) => `${k} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ')}`; break; }
+      case 'retry': {
+        const pid = String(f.get('project')), month = String(f.get('month')), price = await seatPrice();
+        if (!price) throw new Error('Set a seat price first.');
+        await db().prepare("DELETE FROM billing_invoices WHERE project_id = ? AND month = ? AND status = 'no_card'").bind(pid, month).run();
+        const inv = await invoiceMonth(pid, month, price);
+        notice = inv ? 'Invoice created and sent to Stripe.' : 'Still no card on file for that project.';
+        break;
+      }
+    }
+  } catch (e: any) { error = e.message; }
+}
+const price = await seatPrice();
+const hook = await getSetting('stripe_webhook_id');
+const lastJobs = Number((await getSetting('jobs_last')) || 0);
+const invoices = (await db().prepare(
+  `SELECT i.*, p.name AS project_name FROM billing_invoices i JOIN projects p ON p.id = i.project_id WHERE i.status <> 'nothing' ORDER BY i.month DESC, i.created DESC LIMIT 100`,
+).all<{ project_id: string; project_name: string; month: string; seat_days: number; amount: number; currency: string; status: string; stripe_invoice: string | null; created: number }>()).results;
+const owed = (await db().prepare(
+  `SELECT p.id, p.name, p.stripe_customer, p.billing_status, p.created,
+          (SELECT COUNT(*) FROM project_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.project_id = p.id AND m.access = 'pro' AND COALESCE(u.plan, 'pro') IN ('pro', 'basic')) AS seats
+     FROM projects p ORDER BY seats DESC`,
+).all<{ id: string; name: string; stripe_customer: string | null; billing_status: string | null; created: number; seats: number }>()).results.filter((p) => p.seats > 0);
+const paid = invoices.filter((i) => i.status === 'paid').reduce((a, i) => a + i.amount, 0);
+const dash = stripeTestMode() ? 'https://dashboard.stripe.com/test' : 'https://dashboard.stripe.com';
+const statusChip: Record<string, string> = { paid: 'good', failed: 'bad', open: '', no_card: 'warn' };
+---
+<AdminShell user={user} title="Payments" tab="billing">
+  {notice && <p class="z-flash" role="status">{notice}</p>}
+  {error && <p class="z-flash bad" role="alert">{error}</p>}
+
+  <section class="z-grid z-row-1-1">
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Stripe</span>{stripeEnabled() && <span class:list={['z-chip', stripeTestMode() ? 'warn' : 'good']}>{stripeTestMode() ? 'Test mode' : 'Live'}</span>}</div>
+      {!stripeEnabled() ? (
+        <ol class="z-steps-s">
+          <li>In Stripe, open <b>Developers → API keys</b> (start in test mode) and copy the secret key.</li>
+          <li>In Webflow Cloud, open the Ziffer app’s <b>Environment variables</b>, add <code>STRIPE_SECRET_KEY</code> as a secret, and redeploy.</li>
+          <li>Come back here and save a seat price — Ziffer then sets up its Stripe webhook by itself.</li>
+        </ol>
+      ) : (
+        <dl class="z-kv">
+          <div><dt>Payment updates (webhook)</dt><dd>{hook ? <span class="z-chip good">Installed</span> : <span class="z-chip warn">Not installed</span>}</dd></div>
+          <div><dt>How people pay</dt><dd>Card saved via Stripe Checkout; invoiced after each full month</dd></div>
+          <div><dt>Collected so far</dt><dd>{invoices.length ? money(paid, invoices[0]!.currency) : '—'}</dd></div>
+        </dl>
+      )}
+      {stripeEnabled() && (
+        <div class="z-row-actions">
+          <form method="post"><input type="hidden" name="action" value="webhook" /><button class="z-btn z-btn-secondary" type="submit">{hook ? 'Reinstall webhook' : 'Install webhook'}</button></form>
+          <a class="z-btn z-btn-ghost" href={dash} target="_blank" rel="noopener">Open Stripe ↗</a>
+        </div>
+      )}
+      <p class="muted z-small">Switching from a test key to a live key? Reinstall the webhook afterwards, since Stripe keeps them apart.</p>
+    </div>
+    <div class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Pro seat price</span><span class="z-card-hint">per seat and month</span></div>
+      <form method="post" class="z-price-form">
+        <input type="hidden" name="action" value="price" />
+        <label><span>Price</span><input class="z-input" name="amount" inputmode="decimal" required value={price ? (price.amount / 100).toString() : ''} placeholder="99" /></label>
+        <label><span>Currency</span><select class="z-select" name="currency">{['sek', 'eur', 'usd', 'nok', 'dkk', 'gbp'].map((c) => <option value={c} selected={(price?.currency ?? 'sek') === c}>{c.toUpperCase()}</option>)}</select></label>
+        <button class="z-btn z-btn-primary" type="submit">Save price</button>
+      </form>
+      <p class="muted z-small">Each project pays for its members with Pro access on the Pro or Basic plan (Pro – Free people and the owner are free). A seat that was there for 10 days of a 30-day month costs a third of the price. VAT and receipts follow your Stripe settings.</p>
+      <div class="z-card-head" style="margin-top:12px"><span class="z-card-title">Background jobs</span></div>
+      <p class="muted z-small">Seats are counted, invoices made, alerts and weekly reports sent once an hour while there’s traffic. Last run: {lastJobs ? new Date(lastJobs).toLocaleString('en-GB', { timeZone: 'Europe/Stockholm', dateStyle: 'medium', timeStyle: 'short' }) : 'never'}. Email {mailEnabled() ? 'is connected' : 'isn’t connected (add RESEND_API_KEY)'}.</p>
+      <form method="post"><input type="hidden" name="action" value="jobs" /><button class="z-btn z-btn-secondary" type="submit">Run them now</button></form>
+    </div>
+  </section>
+
+  <section class="z-card">
+    <div class="z-card-head"><span class="z-card-title">Projects with paid seats</span><span class="z-card-hint">{owed.length}</span></div>
+    {owed.length === 0 ? <p class="muted">No project has paid seats right now.</p> : (
+      <div class="z-table-wrap"><table class="z-table">
+        <thead><tr><th>Project</th><th class="num">Seats</th><th>Per month</th><th>Card</th></tr></thead>
+        <tbody>{owed.map((p) => (
+          <tr><td><a href={url(`admin/projects/${p.id}`)}><b>{p.name}</b></a></td><td class="num">{p.seats}</td><td>{price ? money(p.seats * price.amount, price.currency) : '—'}</td>
+            <td>{p.billing_status === 'past_due' ? <span class="z-chip bad">Payment failed</span> : p.stripe_customer ? <span class="z-chip good">On file</span> : <span class="z-chip warn">Missing</span>}</td></tr>
+        ))}</tbody>
+      </table></div>
+    )}
+  </section>
+
+  <section class="z-card">
+    <div class="z-card-head"><span class="z-card-title">Invoices</span></div>
+    {invoices.length === 0 ? <p class="muted">No invoices yet. The first ones are made right after the first full month with paid seats.</p> : (
+      <div class="z-table-wrap"><table class="z-table">
+        <thead><tr><th>Month</th><th>Project</th><th class="num">Seat-days</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+        <tbody>{invoices.map((i) => (
+          <tr><td>{i.month}</td><td><a href={url(`admin/projects/${i.project_id}`)}>{i.project_name}</a></td><td class="num">{i.seat_days}</td><td>{money(i.amount, i.currency)}</td>
+            <td><span class:list={['z-chip', statusChip[i.status] ?? '']}>{i.status === 'no_card' ? 'No card' : i.status}</span></td>
+            <td class="z-actions">
+              {i.stripe_invoice && <a class="z-btn z-btn-ghost" href={`${dash}/invoices/${i.stripe_invoice}`} target="_blank" rel="noopener">Stripe ↗</a>}
+              {i.status === 'no_card' && <form method="post"><input type="hidden" name="action" value="retry" /><input type="hidden" name="project" value={i.project_id} /><input type="hidden" name="month" value={i.month} /><button class="z-btn z-btn-ghost" type="submit">Try again</button></form>}
+            </td></tr>
+        ))}</tbody>
+      </table></div>
+    )}
+  </section>
+</AdminShell>

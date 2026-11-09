@@ -10,7 +10,7 @@ import { listVersions } from '../../../../lib/versions';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
-const { env, project, projects, environments, devUser } = ctx;
+const { env, project, projects, environments, devUser, canEdit } = ctx;
 const path = Astro.url.searchParams.get('path') || '/';
 if (!path.startsWith('/')) return new Response('Bad path', { status: 400 });
 
@@ -42,15 +42,15 @@ const statusWord = { pass: 'Passes', warn: 'Needs work', fail: 'Failing', info: 
 const triggerText: Record<string, string> = { first: 'first check', content: 'content changed', structure: 'layout changed', template: 'header/menu changed', version: 'new site version', manual: 'checked on request' };
 ---
 <App title={`${path} · Audit`}>
-  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} />
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main" style="max-width:1080px">
     <nav class="z-story-nav"><a class="z-back" href={url(`e/${env.id}/audits`)}>← All audited pages</a></nav>
 
     {!a ? (
       <section class="z-empty">
         <h2 style="font-size:18px">{path} hasn’t been checked yet</h2>
-        {pending ? <p class="muted" data-audit-runner={url(`e/${env.id}/audits/run`)}>Checking now…</p>
-          : <form method="post"><button class="z-btn z-btn-primary" type="submit">Check this page</button></form>}
+        {pending ? <p class="muted" data-audit-runner={canEdit ? url(`e/${env.id}/audits/run`) : undefined}>Checking now…</p>
+          : canEdit && <form method="post"><button class="z-btn z-btn-primary" type="submit">Check this page</button></form>}
       </section>
     ) : (
       <>
@@ -63,8 +63,8 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
               <a class="z-link" href={a.url!} target="_blank" rel="noopener noreferrer">{a.url} ↗</a>
               <span>HTTP {a.http_status} · {a.fetch_ms} ms · {Math.round((a.bytes ?? 0) / 1024)} KB</span>
             </div>
-            {pending ? <span class="muted" data-audit-runner={url(`e/${env.id}/audits/run`)}><span class="z-spinner"></span> Re-checking…</span>
-              : <form method="post"><button class="z-btn z-btn-secondary" type="submit">Check again now</button></form>}
+            {pending ? <span class="muted" data-audit-runner={canEdit ? url(`e/${env.id}/audits/run`) : undefined}><span class="z-spinner"></span> Re-checking…</span>
+              : canEdit && <form method="post"><button class="z-btn z-btn-secondary" type="submit">Check again now</button></form>}
           </div>
           <div class="z-audit-rings">
             <ScoreRing score={a.seo} label="SEO" delta={prev ? (a.seo ?? 0) - (prev.seo ?? 0) : null} href="#cat-seo" />

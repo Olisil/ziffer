@@ -2,36 +2,50 @@
 import App from '../../../../layouts/App.astro';
 import AppHeader from '../../../../components/AppHeader.astro';
 import EnvironmentFields from '../../../../components/EnvironmentFields.astro';
-import { db, listEnvironments, listProjects, ownerId, url, type Project } from '../../../../lib/server';
-import { createEnvironment, readEnvForm } from '../../../../lib/forms';
+import ConflictNotice from '../../../../components/ConflictNotice.astro';
+import { listEnvironments, listProjects, MAX_ENVIRONMENTS, ownerId, url } from '../../../../lib/server';
+import { checkNewEnvironment, createEnvironment, readEnvForm } from '../../../../lib/forms';
 import { isDevUser } from '../../../../lib/page';
+import type { Conflict } from '../../../../lib/claims';
 
 const owner = ownerId(Astro);
 if (!owner) return Astro.redirect(url('sign-in'));
-const project = await db().prepare('SELECT * FROM projects WHERE id = ? AND owner_id = ?').bind(Astro.params.project, owner).first<Project>();
+const projects = await listProjects(owner);
+const project = projects.find((p) => p.id === Astro.params.project);
 if (!project) return new Response('Not found', { status: 404 });
+const environments = await listEnvironments(project.id);
+const full = environments.length >= MAX_ENVIRONMENTS;
+const readOnly = project.access !== 'pro';
 let error = '';
+let conflict: Conflict | undefined;
 let raw: Record<string, string> = {};
-if (Astro.request.method === 'POST') {
+if (Astro.request.method === 'POST' && !full && !readOnly) {
   const r = readEnvForm(await Astro.request.formData());
   raw = r.raw;
   if (r.error) error = r.error;
-  else return Astro.redirect(url(`e/${await createEnvironment(project.id, r.value!)}/settings?welcome=1`));
+  else {
+    const bad = await checkNewEnvironment(project.id, r.value!, owner);
+    if (bad) { error = bad.error; conflict = bad.conflict; }
+    else return Astro.redirect(url(`e/${await createEnvironment(project.id, r.value!)}/settings?welcome=1`));
+  }
 }
-const [projects, environments] = await Promise.all([listProjects(owner), listEnvironments(project.id)]);
 ---
 <App title="Add environment">
   <AppHeader projects={projects} project={project} devUser={isDevUser()} />
   <main class="z-main" style="max-width:720px">
     <div>
-      <div class="z-eyebrow">{project.name}</div>
+      <div class="z-eyebrow">{project.name} · {environments.length} of {MAX_ENVIRONMENTS} environments</div>
       <h1 class="z-h1">Add an environment</h1>
-      <p class="muted" style="margin:8px 0 0">{environments.length} existing: {environments.map((e) => e.name).join(', ') || 'none yet'}.</p>
+      <p class="muted" style="margin:8px 0 0">Existing: {environments.map((e) => e.name).join(', ') || 'none yet'}.</p>
     </div>
-    <form method="post" class="z-card z-form" style="max-width:none">
-      {error && <p role="alert" style="margin:0;color:#e5484d">{error}</p>}
-      <EnvironmentFields values={raw} />
-      <div><button class="z-btn z-btn-primary" type="submit">Add environment</button></div>
-    </form>
+    {readOnly ? <p class="z-card" style="margin:0">You have Basic (read-only) access to {project.name}, so you can’t add environments.</p>
+      : full ? <p class="z-card" style="margin:0">{project.name} already has {MAX_ENVIRONMENTS} environments, the most a project can have. Remove one in its Settings or create a new project.</p>
+      : (
+        <form method="post" class="z-card z-form" style="max-width:none">
+          {error && <ConflictNotice message={error} conflict={conflict} />}
+          <EnvironmentFields values={raw} />
+          <div><button class="z-btn z-btn-primary" type="submit">Add environment</button></div>
+        </form>
+      )}
   </main>
 </App>

@@ -1,9 +1,12 @@
 import type { APIRoute } from 'astro';
 import { db } from '../../lib/server';
-import { envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
+import { confirmClaim, envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 import { browserOf, osOf } from '../../lib/ua';
 import { isHash, observe } from '../../lib/versions';
 import { queueAudit, runPendingAudits } from '../../lib/audit';
+import { runJobs, tellVersion } from '../../lib/jobs';
+
+const APP_ORIGIN = 'https://ziffer.webflow.io';
 
 const MAX_BODY = 64 * 1024;
 const MAX_EVENTS = 200;
@@ -99,6 +102,22 @@ export const POST: APIRoute = async ({ request, locals }) => {
     }
   }
   if (stmts.length) await DB.batch(stmts);
+  if (!env.verified_at && stmts.length) {
+    const confirmed = await confirmClaim(env);
+    if (confirmed) {
+      const site = env.domain;
+      const tell = (async () => {
+        const { notify, projectRecipients } = await import('../../lib/notify');
+        await notify(await projectRecipients(env.project_id, 'pro'), {
+          kind: 'claims', projectId: env.project_id, envId: env.id,
+          title: `${site} is confirmed`, lines: [`The first visit arrived through your snippet, so <b>${site}</b> now belongs to your project in Ziffer. Data is coming in.`],
+          link: `/app/e/${env.id}`, button: 'Open the dashboard',
+        }, 'https://ziffer.webflow.io');
+      })().catch(() => {});
+      const c = (locals as any).cfContext as ExecutionContext | undefined;
+      if (c?.waitUntil) c.waitUntil(tell); else await tell;
+    }
+  }
   if (fps.length) {
     // Layout bookkeeping runs after the response; it never slows down the visitor.
     const work = (async () => {
@@ -108,12 +127,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
         const r = await observe(env.id, f.path, f.device, f, f.ts);
         if (r.first) await queueAudit(env.id, f.path, 'first');
         else if (r.changed) await queueAudit(env.id, f.path, r.newVersion ? 'version' : r.changed.kind, r.newVersion);
+        if (r.newVersion) await tellVersion(env.id, r.newVersion, APP_ORIGIN);
       }
       await runPendingAudits(env.id, 1);
     })().catch((err) => console.error('ziffer: fingerprint', err));
     const ctx = (locals as any).cfContext as ExecutionContext | undefined;
     if (ctx?.waitUntil) ctx.waitUntil(work); else await work;
   }
+  // Hourly housekeeping (seat counts, invoices, spike checks, weekly mail) rides along with traffic.
+  const jobs = runJobs(APP_ORIGIN).catch((e) => console.error('ziffer: jobs', e));
+  const c2 = (locals as any).cfContext as ExecutionContext | undefined;
+  if (c2?.waitUntil) c2.waitUntil(jobs);
   return new Response(null, { status: 204, headers: cors });
 };
 

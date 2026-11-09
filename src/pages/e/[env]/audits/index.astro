@@ -8,7 +8,7 @@ import { latestAudits, queueAudit, type Check } from '../../../../lib/audit';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
-const { env, project, projects, environments, devUser } = ctx;
+const { env, project, projects, environments, devUser, canEdit } = ctx;
 if (env.kind !== 'web') return Astro.redirect(url(`e/${env.id}`));
 
 if (Astro.request.method === 'POST') {
@@ -59,7 +59,7 @@ const tone = (n: number | null) => (n === null ? '' : n >= 85 ? 'good' : n >= 60
 const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
 ---
 <App title={`${env.name} · Audits`}>
-  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} />
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main" style="max-width:1120px">
     <div class="z-title-row">
       <div>
@@ -67,7 +67,7 @@ const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
         <h1 class="z-h1">Audits</h1>
       </div>
       <div class="z-spacer"></div>
-      <form method="post"><input type="hidden" name="action" value="all" /><button class="z-btn z-btn-secondary" type="submit">Check all pages now</button></form>
+      {canEdit && <form method="post"><input type="hidden" name="action" value="all" /><button class="z-btn z-btn-secondary" type="submit">Check all pages now</button></form>}
     </div>
     <p class="muted z-lead">
       Pages are checked automatically when Ziffer notices new content or a new layout, the way Google and AI crawlers read them — as plain HTML, without running scripts.{' '}
@@ -76,7 +76,7 @@ const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
     </p>
 
     {pending.length > 0 && (
-      <div class="z-card z-audit-running" data-audit-runner={url(`e/${env.id}/audits/run`)}>
+      <div class="z-card z-audit-running" data-audit-runner={canEdit ? url(`e/${env.id}/audits/run`) : undefined}>
         <span class="z-spinner" aria-hidden="true"></span>
         <span><b>Checking {pending.length} {pending.length === 1 ? 'page' : 'pages'}…</b> <span class="muted">{pending.slice(0, 4).map((p) => p.path).join(', ')}{pending.length > 4 ? '…' : ''}</span></span>
       </div>
@@ -87,7 +87,7 @@ const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
       <section class="z-empty">
         <h2 style="font-size:18px">No audits yet</h2>
         <p class="muted" style="margin:0;max-width:560px">The first audits run on their own as visits come in. You can also start them now.</p>
-        <form method="post"><input type="hidden" name="action" value="all" /><button class="z-btn z-btn-primary" type="submit">Check {env.domain} now</button></form>
+        {canEdit && <form method="post"><input type="hidden" name="action" value="all" /><button class="z-btn z-btn-primary" type="submit">Check {env.domain} now</button></form>}
       </section>
     ) : latest.length > 0 && (
       <>

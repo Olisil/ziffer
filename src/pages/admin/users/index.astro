@@ -1,0 +1,99 @@
+---
+import AdminShell from '../../../components/AdminShell.astro';
+import { adminInvitations, adminInvite, adminUsers, requireOwner, revokeInvitation, setPlan } from '../../../lib/admin';
+import { fmt } from '../../../lib/page';
+import { db, url } from '../../../lib/server';
+import { PLAN_LABEL, type Plan } from '../../../lib/users';
+import { mailEnabled } from '../../../lib/mail';
+
+const user = await requireOwner(Astro);
+if (user instanceof Response) return user;
+let notice = '', error = '', link: string | null = null;
+if (Astro.request.method === 'POST') {
+  const f = await Astro.request.formData();
+  const action = String(f.get('action'));
+  try {
+    if (action === 'plan') { await setPlan(user, String(f.get('user')), String(f.get('plan')) as Plan, Astro.request); notice = 'Plan updated.'; }
+    if (action === 'invite') {
+      const r = await adminInvite(user, { email: String(f.get('email') || ''), plan: String(f.get('plan')) as Plan, projectId: String(f.get('project') || '') || null, access: String(f.get('access')) as any }, Astro.request);
+      if (r.existing) notice = 'They already have an account, so the plan (and project) applies right away.';
+      else { link = r.link; notice = mailEnabled() ? 'Invitation sent. You can also share the link below.' : 'Email isn’t connected yet, so share this link yourself:'; }
+    }
+    if (action === 'revoke') { await revokeInvitation(String(f.get('token'))); notice = 'Invitation withdrawn.'; }
+  } catch (e: any) { error = e.message; }
+}
+const q = (Astro.url.searchParams.get('q') || '').toLowerCase();
+const planFilter = Astro.url.searchParams.get('plan') || '';
+const people = (await adminUsers()).filter((u) => (!planFilter || u.plan === planFilter) && (!q || `${u.name} ${u.email}`.toLowerCase().includes(q)));
+const invites = await adminInvitations();
+const projects = (await db().prepare('SELECT id, name FROM projects ORDER BY name').all<{ id: string; name: string }>()).results;
+const origin = new URL(Astro.request.url).origin;
+const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join('');
+const plans: Plan[] = ['pro_free', 'pro', 'basic'];
+---
+<AdminShell user={user} title="People & plans" tab="users">
+  {notice && <p class="z-flash" role="status">{notice}{link && <span class="z-copy"><input class="z-input" readonly value={link} onfocus="this.select()" aria-label="Invitation link" /><button class="z-btn z-btn-secondary" type="button" onclick={`navigator.clipboard.writeText(${JSON.stringify(link)});this.textContent='Copied'`}>Copy</button></span>}</p>}
+  {error && <p class="z-flash bad" role="alert">{error}</p>}
+
+  <section class="z-card">
+    <div class="z-card-head"><span class="z-card-title">Invite someone</span><span class="z-card-hint">They get the plan when they sign up with this email</span></div>
+    <form method="post" class="z-admin-invite">
+      <input type="hidden" name="action" value="invite" />
+      <label><span>Email</span><input class="z-input" type="email" name="email" required placeholder="name@company.com" /></label>
+      <label><span>Plan</span><select class="z-select" name="plan">{plans.map((p) => <option value={p} selected={p === 'pro_free'}>{PLAN_LABEL[p]}</option>)}</select></label>
+      <label><span>Project (optional)</span><select class="z-select" name="project"><option value="">No project</option>{projects.map((p) => <option value={p.id}>{p.name}</option>)}</select></label>
+      <label><span>Access</span><select class="z-select" name="access"><option value="pro">Pro (edit)</option><option value="basic">Basic (view)</option></select></label>
+      <button class="z-btn z-btn-primary" type="submit">Invite</button>
+    </form>
+    <ul class="z-plan-help muted">
+      <li><b>Pro – Free</b> creates projects and edits everything, at no cost.</li>
+      <li><b>Pro</b> is the same, paid monthly per project seat after each full month.</li>
+      <li><b>Basic – Free</b> views the projects they’re invited to, read-only, with a simpler app.</li>
+    </ul>
+  </section>
+
+  {invites.length > 0 && (
+    <section class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Open invitations</span><span class="z-card-hint">{invites.length}</span></div>
+      <div class="z-table-wrap"><table class="z-table">
+        <thead><tr><th>Email</th><th>Plan</th><th>Project</th><th>Sent</th><th>Expires</th><th></th></tr></thead>
+        <tbody>{invites.map((i) => (
+          <tr>
+            <td>{i.email}</td><td>{i.plan ? PLAN_LABEL[i.plan as Plan] : <span class="muted">project invite</span>}</td>
+            <td>{i.project_name ? `${i.project_name} · ${i.access === 'pro' ? 'Pro' : 'Basic'}` : '—'}</td>
+            <td>{fmt.date(i.created)}{i.invited_by_name ? <span class="muted"> · {i.invited_by_name}</span> : ''}</td><td>{fmt.date(i.expires)}</td>
+            <td class="z-actions">
+              <button class="z-btn z-btn-ghost" type="button" onclick={`navigator.clipboard.writeText(${JSON.stringify(`${origin}/app/invite/${i.token}`)});this.textContent='Copied'`}>Copy link</button>
+              <form method="post"><input type="hidden" name="action" value="revoke" /><input type="hidden" name="token" value={i.token} /><button class="z-btn z-btn-ghost" type="submit">Withdraw</button></form>
+            </td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+    </section>
+  )}
+
+  <section class="z-card">
+    <div class="z-card-head">
+      <span class="z-card-title">Everyone</span>
+      <form method="get" class="z-admin-filter">
+        <input class="z-input" name="q" value={q} placeholder="Search name or email" aria-label="Search people" />
+        <select class="z-select" name="plan" onchange="this.form.submit()" aria-label="Filter by plan"><option value="">All plans</option>{(['owner', ...plans] as Plan[]).map((p) => <option value={p} selected={planFilter === p}>{PLAN_LABEL[p]}</option>)}</select>
+      </form>
+    </div>
+    <div class="z-table-wrap"><table class="z-table">
+      <thead><tr><th>Person</th><th>Plan</th><th class="num">Projects</th><th class="num">Owns</th><th>Joined</th><th>Last seen</th></tr></thead>
+      <tbody>{people.map((p) => (
+        <tr>
+          <td><a class="z-person" href={url(`admin/users/${p.id}`)}>{p.image_url ? <img src={p.image_url} alt="" width="28" height="28" /> : <span class="z-avatar-s">{initials(p.name || p.email)}</span>}<span><b>{p.name || p.email}</b><small class="muted">{p.email}</small></span></a></td>
+          <td>{p.plan === 'owner' ? <span class="z-chip owner">Owner</span> : (
+            <form method="post"><input type="hidden" name="action" value="plan" /><input type="hidden" name="user" value={p.id} />
+              <select class="z-select z-select-s" name="plan" onchange="this.form.submit()" aria-label={`Plan for ${p.email}`}>{plans.map((x) => <option value={x} selected={p.plan === x}>{PLAN_LABEL[x]}</option>)}</select></form>
+          )}</td>
+          <td class="num">{p.projects}</td><td class="num">{p.owns}</td>
+          <td>{fmt.date(p.created)}</td><td>{p.last_seen ? fmt.date(p.last_seen) : '—'}</td>
+        </tr>
+      ))}</tbody>
+    </table></div>
+    {people.length === 0 && <p class="muted">Nobody matches.</p>}
+  </section>
+</AdminShell>

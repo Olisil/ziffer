@@ -1,7 +1,8 @@
 ---
 import { UserButton } from '@clerk/astro/components';
 import Logo from './Logo.astro';
-import { rangeOf, rangeQuery, url, type Environment, type Project } from '../lib/server';
+import { db, rangeOf, rangeQuery, url, type Environment, type Project } from '../lib/server';
+import { isServiceOwner, me } from '../lib/users';
 
 interface Props {
   projects: Project[];
@@ -10,8 +11,9 @@ interface Props {
   env?: Environment;
   tab?: 'dashboard' | 'heatmaps' | 'sessions' | 'versions' | 'audits' | 'settings';
   devUser?: boolean;
+  readOnly?: string | null;
 }
-const { projects, project, environments = [], env, tab, devUser = false } = Astro.props;
+const { projects, project, environments = [], env, tab, devUser = false, readOnly = null } = Astro.props;
 const base = env ? url(`e/${env.id}`) : '';
 const sp = Astro.url.searchParams;
 const q = sp.get('range') || sp.get('from') ? `?${rangeQuery(rangeOf(Astro.url))}` : '';
@@ -20,6 +22,9 @@ const tabs = env
       ? [['dashboard', 'Dashboard', ''], ['sessions', 'Sessions', '/sessions'], ['heatmaps', 'Heatmaps', '/heatmaps'], ['versions', 'Versions', '/versions'], ['audits', 'Audits', '/audits'], ['settings', 'Settings', '/settings']]
       : [['dashboard', 'Dashboard', ''], ['settings', 'Settings', '/settings']])
   : [];
+const viewer = await me(Astro).catch(() => null);
+const unread = viewer ? ((await db().prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').bind(viewer.id).first<{ n: number }>())?.n ?? 0) : 0;
+const admin = isServiceOwner(viewer);
 const kindLabel = (k: string) => (k === 'web' ? 'Web' : 'Virtual tour');
 const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
 ---
@@ -70,6 +75,15 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
     </nav>
   )}
   <div class="z-spacer"></div>
+  {readOnly && <span class="z-chip z-ro" title={readOnly}>Read-only</span>}
+  {admin && <a class="z-chip z-admin-link" href={url('admin')}>Admin</a>}
+  <a class="z-toggle z-bell" href={url('settings?tab=notifications')} aria-label={unread ? `${unread} unread notifications` : 'Notifications'}>
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.2 1.3H2.8z" stroke-linejoin="round" /><path d="M6.5 14.2a1.6 1.6 0 0 0 3 0" /></svg>
+    {unread > 0 && <span class="z-bell-dot">{unread > 9 ? '9+' : unread}</span>}
+  </a>
+  <a class="z-toggle" href={url('settings')} aria-label="Settings">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7 3.4 3.4" stroke-linecap="round" /></svg>
+  </a>
   <button class="z-toggle" type="button" data-theme-toggle aria-label="Switch between light and dark mode">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5" /><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor" /></svg>
   </button>

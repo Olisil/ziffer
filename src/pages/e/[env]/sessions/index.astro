@@ -56,7 +56,7 @@ const detailQuery = Astro.url.search;
 const activeFilters = [f.device, f.source, f.country, f.page].filter(Boolean).length;
 ---
 <App title={`${env.name} · Sessions`}>
-  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} />
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main">
     <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} title="Sessions" range={r.key} />
 

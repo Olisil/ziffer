@@ -1,0 +1,60 @@
+---
+// Accepting an invitation. People who are signed out are sent to sign in (or sign up) and come back here.
+import App from '../../layouts/App.astro';
+import AppHeader from '../../components/AppHeader.astro';
+import { db, listProjects, ownerId, url } from '../../lib/server';
+import { isDevUser } from '../../lib/page';
+import { me, PLAN_LABEL } from '../../lib/users';
+import { accept } from '../../lib/members';
+
+const owner = ownerId(Astro);
+if (!owner) return Astro.redirect(url(`sign-in?redirect_url=${encodeURIComponent(Astro.url.pathname)}`));
+const user = (await me(Astro))!;
+const token = String(Astro.params.token || '');
+const inv = await db().prepare(
+  `SELECT i.*, p.name AS project_name, u.name AS inviter_name, u.email AS inviter_email FROM invitations i
+     LEFT JOIN projects p ON p.id = i.project_id LEFT JOIN users u ON u.id = i.invited_by WHERE i.token = ?`,
+).bind(token).first<{ email: string; access: string | null; plan: string | null; project_id: string | null; project_name: string | null; inviter_name: string | null; inviter_email: string | null; expires: number; accepted_at: number | null; revoked: number }>();
+let error = '';
+if (Astro.request.method === 'POST' && inv) {
+  try {
+    const pid = await accept(user, token, Astro.request);
+    if (pid) {
+      const first = await db().prepare('SELECT id FROM environments WHERE project_id = ? ORDER BY created LIMIT 1').bind(pid).first<{ id: string }>();
+      return Astro.redirect(first ? url(`e/${first.id}`) : url(''));
+    }
+    return Astro.redirect(url(''));
+  } catch (e: any) { error = e.message; }
+}
+const projects = await listProjects(owner);
+const valid = inv && !inv.revoked && !inv.accepted_at && inv.expires > Date.now();
+const mismatch = inv && user.email?.toLowerCase() !== inv.email;
+---
+<App title="Invitation">
+  <AppHeader projects={projects} devUser={isDevUser()} />
+  <main class="z-main" style="max-width:600px">
+    <section class="z-card z-invite">
+      {!inv ? (
+        <><h1 class="z-h1">Invitation not found</h1><p class="muted">The link may be incomplete. Ask for a new invitation.</p></>
+      ) : !valid ? (
+        <><h1 class="z-h1">{inv.accepted_at ? 'Already accepted' : 'This invitation has expired'}</h1>
+          <p class="muted">{inv.accepted_at ? 'You can find the project on your overview.' : 'Ask the person who invited you for a new one.'}</p>
+          <a class="z-btn z-btn-secondary" href={url('')}>Go to overview</a></>
+      ) : (
+        <>
+          <div class="z-eyebrow">Invitation</div>
+          <h1 class="z-h1">{inv.project_name ? `Join ${inv.project_name}` : `Ziffer ${PLAN_LABEL[(inv.plan as any) || 'pro']}`}</h1>
+          <p>{inv.inviter_name || inv.inviter_email} invited <b>{inv.email}</b>
+            {inv.project_name ? <> with <b>{inv.access === 'pro' ? 'Pro' : 'Basic'}</b> access — {inv.access === 'pro' ? 'you can edit everything in the project.' : 'you can view everything in the project.'}</>
+              : <> to Ziffer on the <b>{PLAN_LABEL[(inv.plan as any) || 'pro']}</b> plan.</>}</p>
+          {error && <p role="alert" class="z-conflict">{error}</p>}
+          {mismatch ? (
+            <p class="z-conflict">You’re signed in as <b>{user.email}</b>. Sign out and sign in (or create an account) as <b>{inv.email}</b> to accept.</p>
+          ) : (
+            <form method="post"><button class="z-btn z-btn-primary" type="submit">Accept invitation</button></form>
+          )}
+        </>
+      )}
+    </section>
+  </main>
+</App>
