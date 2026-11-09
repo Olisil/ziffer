@@ -62,6 +62,25 @@ export async function me(ctx: APIContext | AstroGlobal): Promise<User | null> {
       }
     }
     const ownerNow = isOwnerEmail(email, verified);
+    if (!u && email && verified) {
+      // Same verified email under a new sign-in id: the sign-in service changed (e.g. Clerk development → production)
+      // or the account was recreated. A verified address is unique per sign-in instance, so carry everything over.
+      const old = await DB.prepare('SELECT id FROM users WHERE email = ? AND email_verified = 1 AND id <> ? ORDER BY last_seen DESC LIMIT 1').bind(email, uid).first<{ id: string }>();
+      if (old) {
+        await DB.batch([
+          DB.prepare('UPDATE users SET id = ? WHERE id = ?').bind(uid, old.id),
+          DB.prepare('UPDATE project_members SET user_id = ? WHERE user_id = ?').bind(uid, old.id),
+          DB.prepare('UPDATE project_members SET added_by = ? WHERE added_by = ?').bind(uid, old.id),
+          DB.prepare('UPDATE projects SET owner_id = ? WHERE owner_id = ?').bind(uid, old.id),
+          DB.prepare('UPDATE projects SET payer_id = ? WHERE payer_id = ?').bind(uid, old.id),
+          DB.prepare('UPDATE invitations SET invited_by = ? WHERE invited_by = ?').bind(uid, old.id),
+          DB.prepare('UPDATE invitations SET accepted_by = ? WHERE accepted_by = ?').bind(uid, old.id),
+          DB.prepare('UPDATE access_requests SET user_id = ? WHERE user_id = ?').bind(uid, old.id),
+          DB.prepare('UPDATE notifications SET user_id = ? WHERE user_id = ?').bind(uid, old.id),
+        ]);
+        u = await DB.prepare('SELECT * FROM users WHERE id = ?').bind(uid).first<User>();
+      }
+    }
     if (!u) {
       // New people: an invitation from the service owner sets their plan; otherwise they start as Pro.
       const inv = email ? await DB.prepare('SELECT plan FROM invitations WHERE email = ? AND plan IS NOT NULL AND revoked = 0 AND accepted_at IS NULL AND expires > ? ORDER BY created DESC LIMIT 1').bind(email, now).first<{ plan: Plan }>() : null;

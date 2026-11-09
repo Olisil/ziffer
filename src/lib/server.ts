@@ -6,6 +6,9 @@ export const db = () => (env as unknown as Env).DB;
 
 /** Base path from Webflow Cloud's mount (e.g. "/app"), never with a trailing slash. */
 export const BASE = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
+/** Public home of the service; links in emails and background jobs use it. */
+export const APP_HOME = 'https://probe.nassau.se';
+
 export const url = (p = '') => `${BASE}/${p.replace(/^\/+/, '')}`;
 
 export const id = (bytes = 12) => {

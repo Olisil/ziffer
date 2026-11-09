@@ -1,19 +1,19 @@
 ---
-import { LOGO_BASE, SYMBOL_PATHS, WORD_PATHS } from '../lib/logo';
+import { LOGO_BASE, LOGO_W, SYMBOL_PATHS, SYMBOL_W, WORD_PATHS } from '../lib/logo';
 interface Props { id: string; height?: number; symbolOnly?: boolean; class?: string }
 const { id, height = 28, symbolOnly = false, class: cls = '' } = Astro.props;
 const gid = `zg-${id}`;
-const vbW = symbolOnly ? 147 : 464;
+const vbW = symbolOnly ? SYMBOL_W : LOGO_W;
 const width = Math.round((height * vbW) / 122 * 100) / 100;
 ---
 <svg class={`z-logo-svg ${cls}`} data-ziffer-logo width={width} height={height} viewBox={`0 0 ${vbW} 122`} fill="none"
-  xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ziffer">
+  xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Probe">
   <defs>
     <radialGradient id={gid} cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform={LOGO_BASE} data-ziffer-grad>
       <stop offset=".088" stop-color="#FF5238" /><stop offset=".403" stop-color="#FFBC40" /><stop offset="1" stop-color="#3B78FD" />
     </radialGradient>
   </defs>
-  {SYMBOL_PATHS.map((d) => <path d={d} fill={`url(#${gid})`} />)}
+  {SYMBOL_PATHS.map((d) => <path d={d} fill={`url(#${gid})`} fill-rule="evenodd" />)}
   {!symbolOnly && (
     <g fill="currentColor">
       {WORD_PATHS.map((p) => (p.evenodd ? <path fill-rule="evenodd" clip-rule="evenodd" d={p.d} /> : <path d={p.d} />))}

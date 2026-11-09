@@ -1,6 +1,6 @@
-/*! Ziffer tracker — cookieless page views, engaged time, scroll depth, clicks and occasional page-layout snapshots for heatmaps. Form input is never recorded. */
+/*! Probe tracker — cookieless page views, engaged time, scroll depth, clicks and occasional page-layout snapshots for heatmaps. Form input is never recorded. */
 (function (w, d) {
-  if (w.__ziffer || w.top !== w.self || navigator.webdriver) return; // not inside Ziffer's heatmap preview iframes or bots
+  if (w.__ziffer || w.top !== w.self || navigator.webdriver) return; // not inside Probe's heatmap preview iframes or bots
   var s = d.currentScript, key = s && s.getAttribute('data-site');
   if (!key) return;
   w.__ziffer = 1;
@@ -26,16 +26,16 @@
   }
 
   /* ---- Page snapshot for heatmaps --------------------------------------------------------------
-     About once every few days per page, Ziffer asks the visitor's browser for a copy of the page
+     About once every few days per page, Probe asks the visitor's browser for a copy of the page
      layout, so heatmaps can be drawn on the real page even when the site can't be framed.
-     Scripts, form values and anything marked data-ziffer-mask are removed before sending. */
+     Scripts, form values and anything marked data-probe-mask (or the older data-ziffer-mask) are removed before sending. */
   var snapApi = new URL('api/snap', s.src).href;
   function whenSettled(fn) {
     var go = function () { setTimeout(function () { (w.requestIdleCallback || setTimeout)(fn, { timeout: 1500 }); }, 900); };
     if (d.readyState === 'complete') go(); else w.addEventListener('load', go, { once: true });
   }
   /* ---- Layout fingerprint -------------------------------------------------------------------------
-     Lets Ziffer notice when a page (or the whole site) gets a new layout, without sending any text:
+     Lets Probe notice when a page (or the whole site) gets a new layout, without sending any text:
      s = SimHash of the element skeleton, t = the same for header/nav/footer, c = hash of headings etc. */
   function fnv(str, seed) { var h = seed >>> 0; for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; }
   var VOLATILE = /^(w--|is-|has-|active|open|current|visible|hidden|show|lenis|swiper-slide-|slick-|aos-|wf-)/;
@@ -153,7 +153,7 @@
       // Scroll-in animations (Webflow interactions, AOS) leave unseen content invisible — show it in its final state.
       if (e.hasAttribute('data-w-id') && e.style) { e.style.removeProperty('opacity'); e.style.removeProperty('transform'); e.style.removeProperty('visibility'); e.style.removeProperty('filter'); }
       if (e.hasAttribute('data-aos')) e.classList.add('aos-animate');
-      if (e.hasAttribute('data-ziffer-mask')) { e.textContent = ''; e.setAttribute('style', (e.getAttribute('style') || '') + ';background:#bbb'); }
+      if ((e.hasAttribute('data-probe-mask') || e.hasAttribute('data-ziffer-mask'))) { e.textContent = ''; e.setAttribute('style', (e.getAttribute('style') || '') + ';background:#bbb'); }
     }
     var head = c.querySelector('head');
     if (head) {

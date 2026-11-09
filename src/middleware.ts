@@ -1,7 +1,7 @@
 import { clerkMiddleware } from '@clerk/astro/server';
 import { env } from 'cloudflare:workers';
 import type { MiddlewareHandler } from 'astro';
-import { BASE } from './lib/server';
+import { APP_HOME, BASE } from './lib/server';
 
 // Public, cookieless tracker endpoints never touch Clerk.
 // (and Stripe's webhook, which is verified by its signature instead)
@@ -34,8 +34,15 @@ function sameOrigin(req: Request, u: URL) {
   return hosts.includes(host);
 }
 
+// The service moved from ziffer.webflow.io to probe.nassau.se. Old tracking snippets keep working (tracker
+// endpoints are served on both hosts); people opening the app on the old address are sent to the new one.
+const OLD_HOSTS = new Set(['ziffer.webflow.io']);
+function publicHost(req: Request, u: URL) { return (req.headers.get('X-Forwarded-Host') || req.headers.get('Host') || u.host).split(',')[0].trim().toLowerCase(); }
+
 export const onRequest: MiddlewareHandler = (context, next) => {
   if (isTracker(context.url.pathname)) return next();
+  if ((context.request.method === 'GET' || context.request.method === 'HEAD') && OLD_HOSTS.has(publicHost(context.request, context.url)))
+    return Response.redirect(`${APP_HOME}${context.url.pathname}${context.url.search}`, 301);
   // CSRF: app forms and APIs only accept same-origin writes.
   if (UNSAFE.has(context.request.method) && !sameOrigin(context.request, context.url)) {
     return new Response('Cross-site request blocked', { status: 403 });

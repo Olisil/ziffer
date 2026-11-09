@@ -1,12 +1,12 @@
 import type { APIRoute } from 'astro';
-import { db } from '../../lib/server';
+import { APP_HOME, db } from '../../lib/server';
 import { confirmClaim, envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 import { browserOf, osOf } from '../../lib/ua';
 import { isHash, observe } from '../../lib/versions';
 import { queueAudit, runPendingAudits } from '../../lib/audit';
 import { runJobs, tellVersion } from '../../lib/jobs';
 
-const APP_ORIGIN = 'https://ziffer.webflow.io';
+const APP_ORIGIN = APP_HOME;
 
 const MAX_BODY = 64 * 1024;
 const MAX_EVENTS = 200;
@@ -110,9 +110,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
         const { notify, projectRecipients } = await import('../../lib/notify');
         await notify(await projectRecipients(env.project_id, 'pro'), {
           kind: 'claims', projectId: env.project_id, envId: env.id,
-          title: `${site} is confirmed`, lines: [`The first visit arrived through your snippet, so <b>${site}</b> now belongs to your project in Ziffer. Data is coming in.`],
+          title: `${site} is confirmed`, lines: [`The first visit arrived through your snippet, so <b>${site}</b> now belongs to your project in Probe. Data is coming in.`],
           link: `/app/e/${env.id}`, button: 'Open the dashboard',
-        }, 'https://ziffer.webflow.io');
+        }, APP_HOME);
       })().catch(() => {});
       const c = (locals as any).cfContext as ExecutionContext | undefined;
       if (c?.waitUntil) c.waitUntil(tell); else await tell;
@@ -130,12 +130,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
         if (r.newVersion) await tellVersion(env.id, r.newVersion, APP_ORIGIN);
       }
       await runPendingAudits(env.id, 1);
-    })().catch((err) => console.error('ziffer: fingerprint', err));
+    })().catch((err) => console.error('probe: fingerprint', err));
     const ctx = (locals as any).cfContext as ExecutionContext | undefined;
     if (ctx?.waitUntil) ctx.waitUntil(work); else await work;
   }
   // Hourly housekeeping (seat counts, invoices, spike checks, weekly mail) rides along with traffic.
-  const jobs = runJobs(APP_ORIGIN).catch((e) => console.error('ziffer: jobs', e));
+  const jobs = runJobs(APP_ORIGIN).catch((e) => console.error('probe: jobs', e));
   const c2 = (locals as any).cfContext as ExecutionContext | undefined;
   if (c2?.waitUntil) c2.waitUntil(jobs);
   return new Response(null, { status: 204, headers: cors });

@@ -29,7 +29,7 @@ export async function domainConflict(domain: string, userId: string, exceptEnvId
 
 export function conflictMessage(domain: string, c: Conflict) {
   if (c.mine) return `${domain} is already in your project “${c.projectName}”.`;
-  if (c.verified) return `${domain} is already measured in Ziffer by someone else. You can ask them for access.`;
+  if (c.verified) return `${domain} is already measured in Probe by someone else. You can ask them for access.`;
   const d = new Date(c.reservedUntil!).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
   return `${domain} was just added by someone else and is reserved until ${d} while they install the snippet. You can ask them for access — or add it again after that date if they never confirm it.`;
 }

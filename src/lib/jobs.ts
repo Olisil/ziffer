@@ -55,7 +55,7 @@ async function monthlyInvoices() {
   const month = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}`;
   const projects = (await db().prepare("SELECT DISTINCT project_id FROM billing_days WHERE substr(day, 1, 7) = ? AND seats > 0").bind(month).all<{ project_id: string }>()).results;
   let n = 0;
-  for (const p of projects.slice(0, 20)) { if (await invoiceMonth(p.project_id, month, price).catch((e) => { console.error('ziffer: invoice', e); return null; })) n++; }
+  for (const p of projects.slice(0, 20)) { if (await invoiceMonth(p.project_id, month, price).catch((e) => { console.error('probe: invoice', e); return null; })) n++; }
   return n;
 }
 
@@ -119,10 +119,10 @@ async function weeklyReports(origin: string) {
         <td align="right" style="padding:8px 0;border-bottom:1px solid #eee"><b>${e.sessions}</b> sessions${d === null ? '' : ` <span style="color:${d >= 0 ? '#22a06b' : '#ff5238'}">${d >= 0 ? '+' : ''}${d}%</span>`}<br>
         <span style="color:#888;font-size:12px">${Math.round(e.engagement)} s engaged · ${e.rage} rage${e.changes ? ` · ${e.changes} page changes` : ''}</span></td></tr>`;
     }).join('');
-    await sendMail(u.email!, 'Your week in Ziffer', layout({
-      title: 'Your week in Ziffer',
+    await sendMail(u.email!, 'Your week in Probe', layout({
+      title: 'Your week in Probe',
       lines: ['Here is how your sites did over the last 7 days.', `<table width="100%" cellpadding="0" cellspacing="0" style="font-size:14px">${rows}</table>`],
-      button: { text: 'Open Ziffer', href: `${origin}/app` },
+      button: { text: 'Open Probe', href: `${origin}/app` },
       footer: 'You get this weekly report because it’s on in Settings → Notifications.',
     }));
     sent++;
@@ -136,7 +136,7 @@ export async function tellVersion(envId: string, versionId: string, origin: stri
   if (!e) return;
   const n = (await db().prepare('SELECT COUNT(*) AS n FROM site_versions WHERE env_id = ? AND merged_into IS NULL').bind(envId).first<{ n: number }>())?.n ?? 0;
   await notify(await projectRecipients(e.project_id), { kind: 'version', projectId: e.project_id, envId, title: `New version of ${e.domain || e.name}: ${e.name} ${n}.0`,
-    lines: [`Ziffer noticed a new layout across <b>${esc(e.domain || e.name)}</b> and started version ${n}.0. Stats, heatmaps and audits are now kept apart from the previous version.`, 'If it wasn’t a real release, merge it back with one click.'],
+    lines: [`Probe noticed a new layout across <b>${esc(e.domain || e.name)}</b> and started version ${n}.0. Stats, heatmaps and audits are now kept apart from the previous version.`, 'If it wasn’t a real release, merge it back with one click.'],
     link: `/app/e/${envId}/versions#v-${versionId}`, button: 'See the new version' }, origin);
 }
 

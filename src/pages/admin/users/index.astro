@@ -5,6 +5,7 @@ import { fmt } from '../../../lib/page';
 import { db, url } from '../../../lib/server';
 import { PLAN_LABEL, type Plan } from '../../../lib/users';
 import { mailEnabled } from '../../../lib/mail';
+import { appOrigin } from '../../../lib/notify';
 
 const user = await requireOwner(Astro);
 if (user instanceof Response) return user;
@@ -27,7 +28,7 @@ const planFilter = Astro.url.searchParams.get('plan') || '';
 const people = (await adminUsers()).filter((u) => (!planFilter || u.plan === planFilter) && (!q || `${u.name} ${u.email}`.toLowerCase().includes(q)));
 const invites = await adminInvitations();
 const projects = (await db().prepare('SELECT id, name FROM projects ORDER BY name').all<{ id: string; name: string }>()).results;
-const origin = new URL(Astro.request.url).origin;
+const origin = appOrigin(Astro.request);
 const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join('');
 const plans: Plan[] = ['pro_free', 'pro', 'basic'];
 ---

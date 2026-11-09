@@ -1,8 +1,9 @@
 ---
+import { appOrigin } from '../lib/notify';
 import { url } from '../lib/server';
 interface Props { siteKey: string; domain: string | null }
 const { siteKey, domain } = Astro.props;
-const src = new URL(url('z.js'), Astro.url.origin).href;
+const src = new URL(url('z.js'), appOrigin(Astro.request)).href;
 const snippet = `<script defer src="${src}" data-site="${siteKey}"></script>`;
 ---
 <div class="z-form" style="max-width:none;gap:10px">
@@ -12,7 +13,7 @@ const snippet = `<script defer src="${src}" data-site="${siteKey}"></script>`;
   <textarea class="z-code" rows="2" readonly onclick="this.select()" aria-label="Install snippet">{snippet}</textarea>
   <div style="display:flex;gap:8px;align-items:center">
     <button class="z-btn z-btn-secondary" type="button" data-copy={snippet}>Copy snippet</button>
-    <span class="muted" style="font-size:12px">No cookies · no text or form input recorded · Ziffer’s own previews are ignored</span>
+    <span class="muted" style="font-size:12px">No cookies · no text or form input recorded · Probe’s own previews are ignored</span>
   </div>
 </div>
 <script is:inline>

@@ -93,7 +93,7 @@ export async function setPlan(admin: AUser, userId: string, plan: Plan, req: Req
   if (u.plan === plan) return;
   await db().prepare('UPDATE users SET plan = ? WHERE id = ?').bind(plan, userId).run();
   await notify([userId], {
-    kind: 'billing', title: `Your Ziffer plan is now ${PLAN_LABEL[plan]}`,
+    kind: 'billing', title: `Your Probe plan is now ${PLAN_LABEL[plan]}`,
     lines: [PLAN_TEXT[plan], `Changed by ${esc(admin.name || admin.email || 'Nassau')}.`], link: '/app/settings?tab=plan',
   }, appOrigin(req));
 }
@@ -125,16 +125,16 @@ export async function adminInvite(admin: AUser, o: { email: string; plan: Plan; 
   await db().prepare('INSERT INTO invitations (token, project_id, email, access, plan, invited_by, created, expires) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(token, projectId, email, projectId ? access : null, o.plan, admin.id, now, now + 30 * 864e5).run();
   const link = `${origin}/app/invite/${token}`;
-  await sendMail(email, `You’re invited to Ziffer`, layout({
-    title: 'You’re invited to Ziffer',
+  await sendMail(email, `You’re invited to Probe`, layout({
+    title: 'You’re invited to Probe',
     lines: [
-      `${esc(admin.name || 'Nassau')} invited you to Ziffer with the plan <b>${PLAN_LABEL[o.plan]}</b>.`,
+      `${esc(admin.name || 'Nassau')} invited you to Probe with the plan <b>${PLAN_LABEL[o.plan]}</b>.`,
       PLAN_TEXT[o.plan],
-      project ? `You’ll also join the project <b>${esc(project.name)}</b> with ${access === 'pro' ? 'Pro' : 'Basic'} access.` : 'Ziffer shows how people use websites: visits, heatmaps, sessions, versions and SEO/AEO audits.',
+      project ? `You’ll also join the project <b>${esc(project.name)}</b> with ${access === 'pro' ? 'Pro' : 'Basic'} access.` : 'Probe shows how people use websites: visits, heatmaps, sessions, versions and SEO/AEO audits.',
       'Create an account with this email address to accept. The link is valid for 30 days.',
     ],
     button: { text: 'Accept the invitation', href: link },
-    footer: `Ziffer is a service by Nassau. You get this because ${esc(admin.email || 'Nassau')} invited ${esc(email)}.`,
+    footer: `Probe is a service by Nassau. You get this because ${esc(admin.email || 'Nassau')} invited ${esc(email)}.`,
   })).catch(() => null);
   return { existing: false as const, link };
 }

@@ -104,7 +104,7 @@ const monthName = now.toLocaleDateString('en-GB', { month: 'long', timeZone: 'Eu
 const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
 const notifyRows: [keyof typeof DEFAULT_NOTIFY, string, string][] = [
   ['weekly', 'Weekly report', 'A short email with visitors, engagement, rage clicks and page changes for each of your sites.'],
-  ['version', 'New site version', 'When Ziffer detects a new layout across a site (e.g. “Nassau web 2.0”).'],
+  ['version', 'New site version', 'When Probe detects a new layout across a site (e.g. “Nassau web 2.0”).'],
   ['auditDrop', 'Audit score drops', 'When a page’s SEO / AEO / technical score falls by 10 points or more after a change.'],
   ['rage', 'Rage-click spikes', 'When visitors suddenly click in frustration much more than usual.'],
   ['traffic', 'Traffic spikes and drops', 'Unusually many or few visits — also catches a snippet that went missing.'],
@@ -120,7 +120,7 @@ const PLANS = [
 ];
 const backTo = Astro.request.headers.get('referer')?.includes('/settings') ? url('') : Astro.request.headers.get('referer') || url('');
 const devMode = isDevUser();
-const inviteBase = `${new URL(Astro.request.url).origin}${url('invite/')}`;
+const inviteBase = `${appOrigin(Astro.request)}${url('invite/')}`;
 ---
 <App title="Settings">
   <AppHeader projects={projects} devUser={devMode} />
@@ -288,7 +288,7 @@ const inviteBase = `${new URL(Astro.request.url).origin}${url('invite/')}`;
               <label class="z-switch-row"><span><b>Weekly report day</b><span class="muted">Sent in the morning, Stockholm time.</span></span>
                 <select class="z-select" name="weeklyDay">{days.map((d, i) => <option value={i} selected={prefs.weeklyDay === i}>{d}</option>)}</select></label>
               <h3>How</h3>
-              <label class="z-switch-row"><span><b>Also by email</b><span class="muted">{mailEnabled() ? `To ${user.email}. Notifications always appear under the bell in Ziffer.` : 'Email isn’t connected yet — notifications appear under the bell in Ziffer.'}</span></span>
+              <label class="z-switch-row"><span><b>Also by email</b><span class="muted">{mailEnabled() ? `To ${user.email}. Notifications always appear under the bell in Probe.` : 'Email isn’t connected yet — notifications appear under the bell in Probe.'}</span></span>
                 <input type="checkbox" class="z-switch" name="email" checked={prefs.email} /></label>
               <div><button class="z-btn z-btn-primary" type="submit">Save</button></div>
             </form>

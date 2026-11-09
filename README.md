@@ -1,6 +1,6 @@
-# Ziffer app
+# Probe app
 
-The signed-in Ziffer app (dashboard, sessions, heatmaps, settings) and the cookieless tracker. Built with Astro on Webflow Cloud and mounted at `/app` on the Ziffer site. Sign-in uses Clerk; data is stored in Webflow Cloud SQLite (D1).
+The signed-in Probe app (dashboard, sessions, heatmaps, settings) and the cookieless tracker. Built with Astro on Webflow Cloud and mounted at `/app` on the Probe site. Sign-in uses Clerk; data is stored in Webflow Cloud SQLite (D1).
 
 ## Environment variables (Webflow Cloud → Environment)
 - `PUBLIC_CLERK_PUBLISHABLE_KEY` — `pk_…`
@@ -15,4 +15,4 @@ npm run dev
 ```
 
 ## Install on a site
-`<script defer src="https://<ziffer-domain>/app/z.js" data-site="zs_…"></script>`. The site key is under **Settings** for each environment.
+`<script defer src="https://probe.nassau.se/app/z.js" data-site="zs_…"></script>`. The site key is under **Settings** for each environment.

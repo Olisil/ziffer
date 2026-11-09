@@ -3,7 +3,7 @@
 // Pages are fetched the way search and AI crawlers see them: plain HTML, no JavaScript. Every check has a
 // weight, a status, what was found, why it matters and how to fix it, so a score can always be explained.
 import { parse, type HTMLElement } from 'node-html-parser';
-import { db, id } from './server';
+import { APP_HOME, db, id } from './server';
 import { bucket } from './snapshots';
 
 export type Status = 'pass' | 'warn' | 'fail' | 'info';
@@ -15,7 +15,7 @@ export type AuditRow = {
   url: string | null; http_status: number | null; fetch_ms: number | null; bytes: number | null; results: string | null; error: string | null;
 };
 
-const UA = 'Mozilla/5.0 (compatible; ZifferAudit/1.0; +https://ziffer.webflow.io/app)';
+const UA = 'Mozilla/5.0 (compatible; ProbeAudit/1.0; +https://probe.nassau.se/app)';
 const AI_BOTS = ['GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'Claude-SearchBot', 'PerplexityBot', 'Google-Extended', 'CCBot', 'Applebot-Extended'];
 const QUESTION = /\?\s*$|^(how|what|why|when|where|who|which|can|does|do|is|are|should|vad|hur|varför|när|var|vem|vilken|vilka|kan|är|ska|wie|was|warum|wann|wo|wer)\b/i;
 
@@ -350,7 +350,7 @@ export function analyse(input: {
   add({ id: 'tech.https', cat: 'tech', scope: 'site', title: 'Secure connection (HTTPS)', weight: 8, status: url.startsWith('https://') ? 'pass' : 'fail', found: url.startsWith('https://') ? 'HTTPS' : 'Plain HTTP',
     why: 'Browsers flag HTTP pages as not secure and search engines rank them lower.', fix: 'In Webflow: Hosting → SSL, and redirect HTTP to HTTPS.' });
   add({ id: 'tech.speed', cat: 'tech', scope: 'page', title: 'Server response time', weight: 6, status: input.ms <= 800 ? 'pass' : input.ms <= 2000 ? 'warn' : 'fail',
-    found: `${input.ms} ms to fetch the HTML (from Ziffer’s server)`, why: 'Slow responses delay everything else and crawlers visit fewer pages of slow sites.',
+    found: `${input.ms} ms to fetch the HTML (from Probe’s server)`, why: 'Slow responses delay everything else and crawlers visit fewer pages of slow sites.',
     fix: 'Webflow serves from a CDN; slow times usually come from heavy CMS pages or many embeds. Paginate long collection lists.' });
   const kb = Math.round(input.bytes / 1024);
   add({ id: 'tech.weight', cat: 'tech', scope: 'page', title: 'HTML size', weight: 4, status: kb <= 400 ? 'pass' : kb <= 1200 ? 'warn' : 'fail', found: `${kb} KB of HTML`,
@@ -422,7 +422,7 @@ export async function runAudit(a: AuditRow) {
     .bind(Date.now(), version, seo, aeo, tech, overall, res.url, res.status, res.ms, res.bytes, JSON.stringify({ title: pageTitle, checks }), a.id).run();
   if (before?.overall != null && overall != null && before.overall - overall >= 10 && a.trigger !== 'manual') {
     const { tellAuditDrop } = await import('./jobs');
-    await tellAuditDrop(a.env_id, a.path, before.overall, overall, 'https://ziffer.webflow.io').catch(() => {});
+    await tellAuditDrop(a.env_id, a.path, before.overall, overall, APP_HOME).catch(() => {});
   }
 }
 

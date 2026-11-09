@@ -22,7 +22,7 @@ if (Astro.request.method === 'POST') {
         if (!['sek', 'eur', 'usd', 'nok', 'dkk', 'gbp'].includes(currency)) throw new Error('Pick a currency.');
         await setSetting('seat_price', JSON.stringify({ amount, currency }));
         notice = `Seat price saved: ${money(amount, currency)} per Pro seat and month.`;
-        if (stripeEnabled() && !(await getSetting('stripe_webhook_id'))) { await installWebhook(appOrigin(Astro.request)); notice += ' Stripe is set up to tell Ziffer about payments.'; }
+        if (stripeEnabled() && !(await getSetting('stripe_webhook_id'))) { await installWebhook(appOrigin(Astro.request)); notice += ' Stripe is set up to tell Probe about payments.'; }
         break;
       }
       case 'webhook': await installWebhook(appOrigin(Astro.request)); notice = 'Stripe webhook installed.'; break;
@@ -63,8 +63,8 @@ const statusChip: Record<string, string> = { paid: 'good', failed: 'bad', open: 
       {!stripeEnabled() ? (
         <ol class="z-steps-s">
           <li>In Stripe, open <b>Developers → API keys</b> (start in test mode) and copy the secret key.</li>
-          <li>In Webflow Cloud, open the Ziffer app’s <b>Environment variables</b>, add <code>STRIPE_SECRET_KEY</code> as a secret, and redeploy.</li>
-          <li>Come back here and save a seat price — Ziffer then sets up its Stripe webhook by itself.</li>
+          <li>In Webflow Cloud, open the Probe app’s <b>Environment variables</b>, add <code>STRIPE_SECRET_KEY</code> as a secret, and redeploy.</li>
+          <li>Come back here and save a seat price — Probe then sets up its Stripe webhook by itself.</li>
         </ol>
       ) : (
         <dl class="z-kv">

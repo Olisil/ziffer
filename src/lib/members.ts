@@ -56,11 +56,11 @@ export async function invite(a: Actor, email: string, access: Access, req: Reque
   await db().prepare('INSERT INTO invitations (token, project_id, email, access, invited_by, created, expires) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(token, a.projectId, email, access, a.user.id, now, now + 14 * 864e5).run();
   const origin = appOrigin(req), name = await projectName(a.projectId);
-  await sendMail(email, `${a.user.name || a.user.email} invited you to ${name} in Ziffer`, layout({
-    title: `Join ${name} in Ziffer`,
+  await sendMail(email, `${a.user.name || a.user.email} invited you to ${name} in Probe`, layout({
+    title: `Join ${name} in Probe`,
     lines: [
       `${esc(a.user.name || a.user.email || 'Someone')} invited you to the project <b>${esc(name)}</b> with <b>${access === 'pro' ? 'Pro' : 'Basic'}</b> access${access === 'pro' ? ' (you can edit everything)' : ' (you can view everything)'}.`,
-      'Ziffer shows how people use websites: visits, heatmaps, sessions, versions and SEO/AEO audits.',
+      'Probe shows how people use websites: visits, heatmaps, sessions, versions and SEO/AEO audits.',
       'The invitation is valid for 14 days. Sign in or create an account with this email address to accept it.',
     ],
     button: { text: 'Accept the invitation', href: `${origin}/app/invite/${token}` },
@@ -168,7 +168,7 @@ export async function answerRequest(a: Actor, requestId: string, answer: 'pro' |
     await notify([r.user_id], { kind: 'members', projectId: null, title: 'Your access request was declined', lines: [`The owner of the site you tried to add declined your request.`] }, appOrigin(req));
     return;
   }
-  // The requester is already signed in with a verified email (they asked from inside Ziffer), so add them directly.
+  // The requester is already signed in with a verified email (they asked from inside Probe), so add them directly.
   const u = await db().prepare('SELECT id, plan FROM users WHERE id = ? AND email_verified = 1').bind(r.user_id).first<{ id: string; plan: User['plan'] }>();
   if (!u) { await invite(a, r.email, answer, req); }
   else {

@@ -1,5 +1,5 @@
 ---
-// Someone found that a site is already in Ziffer and asks that project's owner for access.
+// Someone found that a site is already in Probe and asks that project's owner for access.
 import App from '../layouts/App.astro';
 import AppHeader from '../components/AppHeader.astro';
 import { db, id, listProjects, ownerId, url } from '../lib/server';
@@ -23,7 +23,7 @@ if (env) {
     await notify(await projectRecipients(env.project_id, 'owner'), {
       kind: 'members', projectId: env.project_id,
       title: `${user.name || user.email} asks for access to ${env.domain}`,
-      lines: [`<b>${esc(user.name || '')}</b> (${esc(user.email || '')}) tried to add <b>${esc(env.domain || '')}</b> to Ziffer and is asking to join your project instead.`, ...(message ? [`“${esc(message)}”`] : []), 'You can invite them as Pro or Basic, or decline, in Settings → Projects.'],
+      lines: [`<b>${esc(user.name || '')}</b> (${esc(user.email || '')}) tried to add <b>${esc(env.domain || '')}</b> to Probe and is asking to join your project instead.`, ...(message ? [`“${esc(message)}”`] : []), 'You can invite them as Pro or Basic, or decline, in Settings → Projects.'],
       link: url('settings?tab=projects'), button: 'Review the request',
     }, appOrigin(Astro.request));
   }

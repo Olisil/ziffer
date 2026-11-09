@@ -1,5 +1,5 @@
 // In-app notifications, plus email when the person has asked for it.
-import { db } from './server';
+import { APP_HOME, db } from './server';
 import { layout, sendMail, esc } from './mail';
 import { prefsOf, type NotifyPrefs, type User } from './users';
 
@@ -7,8 +7,9 @@ export type Kind = 'version' | 'auditDrop' | 'traffic' | 'rage' | 'members' | 'b
 const PREF: Record<Kind, keyof NotifyPrefs | null> = { version: 'version', auditDrop: 'auditDrop', traffic: 'traffic', rage: 'rage', members: 'members', billing: 'billing', claims: 'claims', weekly: 'weekly', invite: null };
 
 export function appOrigin(req?: Request) {
-  if (req) { const u = new URL(req.url); const host = req.headers.get('X-Forwarded-Host')?.split(',')[0].trim() || u.host; return `https://${host}`; }
-  return 'https://ziffer.webflow.io';
+  // Links always point at the service's home; only local development uses its own host.
+  if (req) { const u = new URL(req.url); if (/^(localhost|127\.0\.0\.1)(:|$)/.test(u.host)) return u.origin; }
+  return APP_HOME;
 }
 
 export type Note = { kind: Kind; title: string; lines: string[]; link?: string; projectId?: string | null; envId?: string | null; button?: string };
@@ -26,8 +27,8 @@ export async function notify(userIds: string[], n: Note, origin: string) {
     await db().prepare('INSERT INTO notifications (user_id, project_id, env_id, kind, title, body, link, created, emailed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .bind(u.id, n.projectId ?? null, n.envId ?? null, n.kind, n.title, n.lines.join('\n').replace(/<[^>]+>/g, ''), n.link ?? null, now, wantsMail ? 1 : 0).run();
     if (wantsMail) {
-      await sendMail(u.email!, n.title, layout({ title: n.title, lines: n.lines, button: n.link ? { text: n.button || 'Open in Ziffer', href: origin + n.link } : undefined }))
-        .catch((e) => console.error('ziffer: notify mail', e));
+      await sendMail(u.email!, n.title, layout({ title: n.title, lines: n.lines, button: n.link ? { text: n.button || 'Open in Probe', href: origin + n.link } : undefined }))
+        .catch((e) => console.error('probe: notify mail', e));
     }
   }
 }

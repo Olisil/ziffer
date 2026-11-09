@@ -4,7 +4,7 @@ import AppHeader from './AppHeader.astro';
 import { listProjects, url } from '../lib/server';
 import type { User } from '../lib/users';
 interface Props { user: User; title: string; tab: 'dashboard' | 'projects' | 'users' | 'billing'; eyebrow?: string }
-const { user, title, tab, eyebrow = 'Ziffer admin · Nassau' } = Astro.props;
+const { user, title, tab, eyebrow = 'Probe admin · Nassau' } = Astro.props;
 const projects = await listProjects(user.id);
 const tabs = [['dashboard', 'Dashboard', 'admin'], ['projects', 'Projects', 'admin/projects'], ['users', 'People & plans', 'admin/users'], ['billing', 'Payments', 'admin/billing']] as const;
 ---

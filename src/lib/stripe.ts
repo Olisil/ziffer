@@ -1,10 +1,10 @@
 // Stripe, used directly over its REST API (no SDK needed in Workers).
 //
-// How Ziffer bills: each project saves a card through Stripe Checkout (setup mode). Every day Ziffer
+// How Probe bills: each project saves a card through Stripe Checkout (setup mode). Every day Probe
 // counts the project's billable Pro seats. After each full month it creates one invoice for
 // (seat-days ÷ days in the month) × seat price and Stripe charges the saved card.
 import { env } from 'cloudflare:workers';
-import { db } from './server';
+import { APP_HOME, db } from './server';
 
 export const stripeKey = () => (env as any).STRIPE_SECRET_KEY as string | undefined;
 export const stripeEnabled = () => !!stripeKey();
@@ -52,13 +52,13 @@ export async function seatPrice(): Promise<SeatPrice | null> {
 export const money = (minor: number, currency: string) =>
   new Intl.NumberFormat(currency === 'sek' ? 'sv-SE' : 'en-GB', { style: 'currency', currency: currency.toUpperCase(), maximumFractionDigits: minor % 100 ? 2 : 0 }).format(minor / 100);
 
-/** Creates (or replaces) the webhook endpoint Ziffer needs and stores its signing secret. */
+/** Creates (or replaces) the webhook endpoint Probe needs and stores its signing secret. */
 export async function installWebhook(origin: string) {
   const old = await getSetting('stripe_webhook_id');
   if (old) await stripe('DELETE', `webhook_endpoints/${old}`).catch(() => null);
   const ep = await stripe('POST', 'webhook_endpoints', {
     url: `${origin}/app/api/stripe/webhook`,
-    description: 'Ziffer billing',
+    description: 'Probe billing',
     enabled_events: ['checkout.session.completed', 'invoice.paid', 'invoice.payment_failed', 'customer.deleted'],
   });
   await setSetting('stripe_webhook_id', ep.id);
@@ -84,7 +84,7 @@ export async function verifyWebhook(payload: string, header: string | null) {
 export async function checkoutForProject(p: { id: string; name: string; stripe_customer?: string | null }, payer: { email: string | null; name: string | null }, origin: string) {
   let customer = p.stripe_customer;
   if (!customer) {
-    const c = await stripe('POST', 'customers', { email: payer.email ?? undefined, name: payer.name ?? undefined, description: `Ziffer project ${p.name}`, metadata: { ziffer_project: p.id } });
+    const c = await stripe('POST', 'customers', { email: payer.email ?? undefined, name: payer.name ?? undefined, description: `Probe project ${p.name}`, metadata: { ziffer_project: p.id } });
     customer = c.id as string;
     await db().prepare('UPDATE projects SET stripe_customer = ? WHERE id = ?').bind(customer, p.id).run();
   }
@@ -122,10 +122,10 @@ export async function handleEvent(evt: any) {
     if (!ok) {
       const { notify, projectRecipients } = await import('./notify');
       await notify(await projectRecipients(pid, 'owner'), {
-        kind: 'billing', projectId: pid, title: 'A Ziffer payment failed',
+        kind: 'billing', projectId: pid, title: 'A Probe payment failed',
         lines: [`Stripe couldn’t charge the card for this month’s Pro seats (${o.amount_due ? (o.amount_due / 100).toFixed(2) + ' ' + String(o.currency).toUpperCase() : ''}).`, 'Update the card to keep editing the project. Viewing still works.'],
         link: '/app/settings?tab=plan', button: 'Update the card',
-      }, 'https://ziffer.webflow.io');
+      }, APP_HOME);
     }
   } else if (evt.type === 'customer.deleted') {
     await DB.prepare("UPDATE projects SET stripe_customer = NULL, billing_status = NULL WHERE stripe_customer = ?").bind(o.id).run();
@@ -156,7 +156,7 @@ export async function invoiceMonth(projectId: string, month: string, price: Seat
   const monthName = new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const inv = await stripe('POST', 'invoices', {
     customer: p.stripe_customer, collection_method: 'charge_automatically', auto_advance: true, pending_invoice_items_behavior: 'exclude',
-    description: `Ziffer Pro seats for ${p.name}, ${monthName}`, metadata: { ziffer_project: projectId, ziffer_month: month },
+    description: `Probe Pro seats for ${p.name}, ${monthName}`, metadata: { ziffer_project: projectId, ziffer_month: month },
   }, `zinv-${projectId}-${month}`);
   await stripe('POST', 'invoiceitems', {
     customer: p.stripe_customer, invoice: inv.id, amount, currency: price.currency,

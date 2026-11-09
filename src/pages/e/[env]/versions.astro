@@ -74,7 +74,7 @@ const saved = Astro.url.searchParams.get('saved');
       </div>
     </div>
     <p class="muted z-lead">
-      Ziffer starts a new version when the site’s layout changes for real: the shared header, menu or footer changes, many pages get a new layout,
+      Probe starts a new version when the site’s layout changes for real: the shared header, menu or footer changes, many pages get a new layout,
       or the start page is redesigned — and the change sticks across visits. Text edits don’t count, but they do trigger new audits.
       The date is when the new layout first appeared and can’t be changed. Merge a version back if it wasn’t a real release.
     </p>
@@ -105,7 +105,7 @@ const saved = Astro.url.searchParams.get('saved');
                 {current && <span class="z-chip z-chip-live">Current</span>}
               </header>
               <div class="z-vmeta">
-                <span title="When the new layout first appeared on the site. Set by Ziffer, not editable.">
+                <span title="When the new layout first appeared on the site. Set by Probe, not editable.">
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
                   Appeared {whenFull(v.detected_at)}
                 </span>
