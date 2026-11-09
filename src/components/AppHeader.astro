@@ -1,23 +1,23 @@
 ---
 import { UserButton } from '@clerk/astro/components';
 import Logo from './Logo.astro';
-import { url, type Environment, type Project } from '../lib/server';
+import { rangeOf, rangeQuery, url, type Environment, type Project } from '../lib/server';
 
 interface Props {
   projects: Project[];
   project?: Project;
   environments?: Environment[];
   env?: Environment;
-  tab?: 'dashboard' | 'heatmaps' | 'sessions' | 'settings';
+  tab?: 'dashboard' | 'heatmaps' | 'sessions' | 'versions' | 'audits' | 'settings';
   devUser?: boolean;
 }
 const { projects, project, environments = [], env, tab, devUser = false } = Astro.props;
 const base = env ? url(`e/${env.id}`) : '';
-const range = Astro.url.searchParams.get('range');
-const q = range ? `?range=${range}` : '';
+const sp = Astro.url.searchParams;
+const q = sp.get('range') || sp.get('from') ? `?${rangeQuery(rangeOf(Astro.url))}` : '';
 const tabs = env
   ? (env.kind === 'web'
-      ? [['dashboard', 'Dashboard', ''], ['sessions', 'Sessions', '/sessions'], ['heatmaps', 'Heatmaps', '/heatmaps'], ['settings', 'Settings', '/settings']]
+      ? [['dashboard', 'Dashboard', ''], ['sessions', 'Sessions', '/sessions'], ['heatmaps', 'Heatmaps', '/heatmaps'], ['versions', 'Versions', '/versions'], ['audits', 'Audits', '/audits'], ['settings', 'Settings', '/settings']]
       : [['dashboard', 'Dashboard', ''], ['settings', 'Settings', '/settings']])
   : [];
 const kindLabel = (k: string) => (k === 'web' ? 'Web' : 'Virtual tour');
@@ -65,7 +65,7 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
   {tabs.length > 0 && (
     <nav class="z-tabs" aria-label="Views">
       {tabs.map(([key, label, path]) => (
-        <a class="z-tab" href={`${base}${path}${key === 'settings' ? '' : q}`} aria-current={tab === key ? 'page' : undefined}>{label}</a>
+        <a class="z-tab" href={`${base}${path}${key === 'settings' || key === 'versions' || key === 'audits' ? '' : q}`} aria-current={tab === key ? 'page' : undefined}>{label}</a>
       ))}
     </nav>
   )}
@@ -78,7 +78,7 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
 {tabs.length > 0 && (
   <nav class="z-mobile-tabs" aria-label="Views">
     {tabs.map(([key, label, path]) => (
-      <a class="z-tab" href={`${base}${path}${key === 'settings' ? '' : q}`} aria-current={tab === key ? 'page' : undefined}>{label}</a>
+      <a class="z-tab" href={`${base}${path}${key === 'settings' || key === 'versions' || key === 'audits' ? '' : q}`} aria-current={tab === key ? 'page' : undefined}>{label}</a>
     ))}
   </nav>
 )}

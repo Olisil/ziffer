@@ -2,6 +2,8 @@ import type { APIRoute } from 'astro';
 import { db } from '../../lib/server';
 import { envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 import { browserOf, osOf } from '../../lib/ua';
+import { isHash, observe } from '../../lib/versions';
+import { queueAudit, runPendingAudits } from '../../lib/audit';
 
 const MAX_BODY = 64 * 1024;
 const MAX_EVENTS = 200;
@@ -29,7 +31,7 @@ async function visitorHash(salt: string, ip: string, ua: string, env: string) {
 const deviceOf = (vw: number) => (vw < 768 ? 'mobile' : vw < 1024 ? 'tablet' : 'desktop');
 const num = (v: unknown, min: number, max: number, dflt = 0) => { const n = Number(v); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt; };
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, locals }) => {
   const origin = request.headers.get('Origin');
   const cors = { 'Access-Control-Allow-Origin': origin || '*', Vary: 'Origin' };
   const text = await request.text();
@@ -51,6 +53,7 @@ export const POST: APIRoute = async ({ request }) => {
   const stmts: D1PreparedStatement[] = [];
   let visitor: string | null = null;
   const clampTs = (t: unknown) => num(t, now - 864e5, now, now);
+  const fps: { pvId: string; path: string; device: string; s: string; t: string; c: string; ts: number }[] = [];
 
   for (const e of body.ev.slice(0, MAX_EVENTS)) {
     if (!e || typeof e !== 'object') continue;
@@ -89,9 +92,28 @@ export const POST: APIRoute = async ({ request }) => {
       );
       if (rage) stmts.push(DB.prepare('UPDATE sessions SET rage = rage + 1 WHERE id = ? AND env_id = ?').bind(sid, env.id));
       if (dead) stmts.push(DB.prepare('UPDATE sessions SET dead = dead + 1 WHERE id = ? AND env_id = ?').bind(sid, env.id));
+    } else if (e.t === 'fp') {
+      const path = pathOf(e.p);
+      if (!path || !isHash(e.s, 16) || !isHash(e.tp, 16) || !isHash(e.c, 8) || fps.length >= 3) continue;
+      fps.push({ pvId, path, device: num(e.vw, 0, 10000) < 768 ? 'mobile' : 'desktop', s: e.s, t: e.tp, c: e.c, ts: clampTs(e.ts) });
     }
   }
   if (stmts.length) await DB.batch(stmts);
+  if (fps.length) {
+    // Layout bookkeeping runs after the response; it never slows down the visitor.
+    const work = (async () => {
+      for (const f of fps) {
+        const real = await DB.prepare('SELECT 1 FROM pageviews WHERE id = ? AND session_id = ? AND env_id = ? AND path = ?').bind(f.pvId, sid, env.id, f.path).first();
+        if (!real) continue;
+        const r = await observe(env.id, f.path, f.device, f, f.ts);
+        if (r.first) await queueAudit(env.id, f.path, 'first');
+        else if (r.changed) await queueAudit(env.id, f.path, r.newVersion ? 'version' : r.changed.kind, r.newVersion);
+      }
+      await runPendingAudits(env.id, 1);
+    })().catch((err) => console.error('ziffer: fingerprint', err));
+    const ctx = (locals as any).cfContext as ExecutionContext | undefined;
+    if (ctx?.waitUntil) ctx.waitUntil(work); else await work;
+  }
   return new Response(null, { status: 204, headers: cors });
 };
 

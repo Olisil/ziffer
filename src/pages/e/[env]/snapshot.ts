@@ -11,7 +11,8 @@ export const GET: APIRoute = async (ctx) => {
   if (!env) return new Response('Not found', { status: 404 });
   const path = ctx.url.searchParams.get('page') || '/';
   const device = ctx.url.searchParams.get('device') === 'mobile' ? 'mobile' : 'desktop';
-  const snap = await getSnapshot(env.id, path, device);
+  const sv = ctx.url.searchParams.get('sv');
+  const snap = await getSnapshot(env.id, path, device, sv !== null ? { version: sv } : undefined);
   const obj = snap && (await bucket()?.get(snap.r2_key));
   if (!snap || !obj) return new Response('No snapshot', { status: 404 });
   return new Response(obj.body, {

@@ -3,6 +3,7 @@ import type { APIRoute } from 'astro';
 import { db } from '../../lib/server';
 import { deviceBucket, envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 import { SNAP_MAX_BYTES, bucket, snapKey, snapshotWanted } from '../../lib/snapshots';
+import { currentVersionId, isHash } from '../../lib/versions';
 
 const corsFor = (origin: string | null) => ({ 'Access-Control-Allow-Origin': origin || '*', Vary: 'Origin' });
 const num = (v: unknown, min: number, max: number) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : min; };
@@ -25,7 +26,8 @@ export const GET: APIRoute = async ({ request, url }) => {
   const path = pathOf(url.searchParams.get('p'));
   const vwq = Number(url.searchParams.get('vw')) || 0;
   const device = deviceBucket(vwq);
-  const need = !!path && vwq >= 240 && (await snapshotWanted(r.site.id, path, device));
+  const sq = url.searchParams.get('s');
+  const need = !!path && vwq >= 240 && (await snapshotWanted(r.site.id, path, device, isHash(sq, 16) ? sq : null));
   return new Response(JSON.stringify({ need }), { headers });
 };
 
@@ -45,13 +47,15 @@ export const POST: APIRoute = async ({ request }) => {
   const vw = num(body.vw, 200, 4000), vh = num(body.vh, 200, 4000), dw = num(body.dw, 200, 8000), dh = num(body.dh, 200, 60000);
   const device = deviceBucket(vw);
   // Re-check on write so a snapshot can't be overwritten more often than the freshness window allows.
-  if (!(await snapshotWanted(r.site.id, path, device))) return new Response(null, { status: 204, headers: cors });
-  const key = await snapKey(r.site.id, device, path);
+  const s = isHash(body.s, 16) ? (body.s as string) : null;
+  if (!(await snapshotWanted(r.site.id, path, device, s))) return new Response(null, { status: 204, headers: cors });
+  const version = (await currentVersionId(r.site.id)) ?? '';
+  const key = await snapKey(r.site.id, device, path, version);
   await bucket()!.put(key, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
   await db().prepare(
-    `INSERT INTO snapshots (env_id, path, device, ts, vw, vh, dw, dh, bytes, r2_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (env_id, path, device) DO UPDATE SET ts = excluded.ts, vw = excluded.vw, vh = excluded.vh, dw = excluded.dw, dh = excluded.dh, bytes = excluded.bytes, r2_key = excluded.r2_key`,
-  ).bind(r.site.id, path, device, Date.now(), vw, vh, dw, dh, html.length, key).run();
+    `INSERT INTO snapshots (env_id, path, device, version_id, s, ts, vw, vh, dw, dh, bytes, r2_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (env_id, path, device, version_id) DO UPDATE SET s = excluded.s, ts = excluded.ts, vw = excluded.vw, vh = excluded.vh, dw = excluded.dw, dh = excluded.dh, bytes = excluded.bytes, r2_key = excluded.r2_key`,
+  ).bind(r.site.id, path, device, version, s, Date.now(), vw, vh, dw, dh, html.length, key).run();
   return new Response(null, { status: 204, headers: cors });
 };
 

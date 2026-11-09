@@ -26,7 +26,7 @@ if (Astro.request.method === 'POST') {
   }
   return Astro.redirect(Astro.url.pathname + Astro.url.search);
 }
-const snap = await getSnapshot(env.id, path, device).catch(() => null);
+const snap = await getSnapshot(env.id, path, device, { from: r.from, to: r.to }).catch(() => null);
 const pageUrl = env.domain ? `https://${env.domain}${path}` : null;
 // Draw on the snapshot's geometry when there is one, otherwise on the average of recorded page views.
 const width = snap?.dw || data.geo?.dw || (device === 'mobile' ? 390 : 1280);
@@ -39,7 +39,7 @@ const link = (patch: Record<string, string>) => {
   for (const [k, v] of Object.entries(patch)) u.searchParams.set(k, v);
   return u.pathname + u.search;
 };
-const snapshotUrl = snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(path)}&device=${device}&v=${snap.ts}`) : null;
+const snapshotUrl = snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(path)}&device=${device}&sv=${encodeURIComponent(snap.version_id)}&v=${snap.ts}`) : null;
 const overlay = mode === 'scroll'
   ? { mode: 'scroll' as const, reach: data.reach }
   : { mode: 'heat' as const, fold, clicks: data.clicks.map((c) => [Math.round(c.xr * width), Math.round(c.dh ? (c.y * height) / c.dh : c.y), c.rage] as [number, number, number]) };
@@ -51,7 +51,7 @@ const rageCount = data.clicks.filter((c) => c.rage).length;
     <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} title="Heatmaps" range={r.key} />
     <section class="z-card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
       <form method="get" style="display:flex;gap:8px;align-items:center;flex:1;min-width:240px">
-        <input type="hidden" name="range" value={r.key} />
+        {r.key === 'custom' ? <><input type="hidden" name="from" value={r.from} /><input type="hidden" name="to" value={r.to} />{r.label && <input type="hidden" name="vl" value={r.label} />}</> : <input type="hidden" name="range" value={r.key} />}
         <input type="hidden" name="device" value={device} />
         <input type="hidden" name="mode" value={mode} />
         <label class="z-menu-label" for="hm-page" style="margin:0">Page</label>

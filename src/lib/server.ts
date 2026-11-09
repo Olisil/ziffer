@@ -60,7 +60,16 @@ export function cleanDomain(input: string) {
 
 export const RANGES = { '24h': 1, '7d': 7, '30d': 30, '90d': 90 } as const;
 export type RangeKey = keyof typeof RANGES;
-export function rangeOf(u: URL): { key: RangeKey; days: number; from: number; to: number; prevFrom: number } {
+export type Range = { key: RangeKey | 'custom'; days: number; from: number; to: number; prevFrom: number; label?: string };
+export const rangeQuery = (r: Range) =>
+  r.key === 'custom' ? `from=${r.from}&to=${r.to}${r.label ? `&vl=${encodeURIComponent(r.label)}` : ''}` : `range=${r.key}`;
+export function rangeOf(u: URL): Range {
+  // A custom period (used for site versions): ?from=<ms>&to=<ms>&vl=<label>
+  const f = Number(u.searchParams.get('from')), t = Number(u.searchParams.get('to'));
+  if (f > 0 && t > f) {
+    const to = Math.min(t, Date.now()), from = Math.min(f, to - 3600e3);
+    return { key: 'custom', days: Math.max(1, Math.ceil((to - from) / 864e5)), from, to, prevFrom: from - (to - from), label: (u.searchParams.get('vl') || '').slice(0, 80) || undefined };
+  }
   const key = (u.searchParams.get('range') as RangeKey) in RANGES ? (u.searchParams.get('range') as RangeKey) : '7d';
   const days = RANGES[key];
   const to = Date.now();

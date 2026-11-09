@@ -34,13 +34,61 @@
     var go = function () { setTimeout(function () { (w.requestIdleCallback || setTimeout)(fn, { timeout: 1500 }); }, 900); };
     if (d.readyState === 'complete') go(); else w.addEventListener('load', go, { once: true });
   }
+  /* ---- Layout fingerprint -------------------------------------------------------------------------
+     Lets Ziffer notice when a page (or the whole site) gets a new layout, without sending any text:
+     s = SimHash of the element skeleton, t = the same for header/nav/footer, c = hash of headings etc. */
+  function fnv(str, seed) { var h = seed >>> 0; for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; }
+  var VOLATILE = /^(w--|is-|has-|active|open|current|visible|hidden|show|lenis|swiper-slide-|slick-|aos-|wf-)/;
+  function skeleton(root, max) {
+    var out = [], stack = [[root, 0]];
+    while (stack.length && out.length < max) {
+      var it = stack.pop(), el = it[0], dep = it[1], tag = el.tagName;
+      if (!tag || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|LINK|META|svg|SVG|PATH|IFRAME)$/.test(tag)) continue;
+      var cls = (typeof el.className === 'string' ? el.className : '').split(/\s+/).filter(function (c) { return c && !VOLATILE.test(c) && !/\d{3,}/.test(c); }).slice(0, 2).sort().join('.');
+      out.push(Math.min(dep, 14) + tag.toLowerCase() + (cls ? '.' + cls : ''));
+      for (var k = el.children.length - 1; k >= 0; k--) stack.push([el.children[k], dep + 1]);
+    }
+    return out;
+  }
+  function simhash(tokens) {
+    var v = [], i, b;
+    for (i = 0; i < 64; i++) v.push(0);
+    for (i = 0; i + 2 < tokens.length || (i === 0 && tokens.length); i++) {
+      var sh = tokens.slice(i, i + 3).join('|'), h1 = fnv(sh, 2166136261), h2 = fnv(sh, 1315423911);
+      for (b = 0; b < 32; b++) { v[b] += (h1 >>> b) & 1 ? 1 : -1; v[b + 32] += (h2 >>> b) & 1 ? 1 : -1; }
+      if (tokens.length < 3) break;
+    }
+    var hi = 0, lo = 0;
+    for (b = 0; b < 32; b++) { if (v[b] > 0) lo |= 1 << b; if (v[b + 32] > 0) hi |= 1 << b; }
+    var hex = function (n) { return ('0000000' + (n >>> 0).toString(16)).slice(-8); };
+    return hex(hi) + hex(lo);
+  }
+  function fingerprint() {
+    var body = d.body; if (!body) return null;
+    var tpl = [], parts = body.querySelectorAll('header, nav, footer, [role=banner], [role=navigation], [role=contentinfo], .w-nav');
+    for (var i = 0; i < parts.length && tpl.length < 800; i++) tpl = tpl.concat(skeleton(parts[i], 300));
+    var heads = body.querySelectorAll('h1, h2, h3'), ht = [];
+    for (var j = 0; j < heads.length && j < 40; j++) ht.push((heads[j].textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80));
+    var md = d.querySelector('meta[name="description"]');
+    var words = Math.round(((body.textContent || '').split(/\s+/).length) / 100);
+    var c = fnv([d.title, md ? md.getAttribute('content') : '', ht.join('|'), words].join('\n'), 2166136261);
+    return { s: simhash(skeleton(body, 4000)), t: simhash(tpl.length ? tpl : ['none']), c: ('0000000' + c.toString(16)).slice(-8) };
+  }
+  var fp = null;
   function maybeSnapshot() {
     if (!pv || !w.fetch || !w.DOMParser) return;
     var path = pv.path, g = dims();
     if (g.vw < 200 || g.vh < 200) return;
-    var flag = 'zf_snap:' + (g.vw < 768 ? 'm' : 'd') + path;
+    var dev = g.vw < 768 ? 'm' : 'd';
+    try { fp = fingerprint(); } catch (e) { fp = null; }
+    if (fp) {
+      var fflag = 'zf_fp:' + dev + path, seen = null;
+      try { seen = sessionStorage.getItem(fflag); sessionStorage.setItem(fflag, '1'); } catch (e) {}
+      if (!seen) { q.push({ t: 'fp', id: pv.id, p: path, vw: g.vw, s: fp.s, tp: fp.t, c: fp.c, ts: Date.now() }); flush(); }
+    }
+    var flag = 'zf_snap:' + dev + path;
     try { if (sessionStorage.getItem(flag)) return; sessionStorage.setItem(flag, '1'); } catch (e) {}
-    fetch(snapApi + '?k=' + encodeURIComponent(key) + '&p=' + encodeURIComponent(path) + '&vw=' + g.vw, { credentials: 'omit' })
+    fetch(snapApi + '?k=' + encodeURIComponent(key) + '&p=' + encodeURIComponent(path) + '&vw=' + g.vw + (fp ? '&s=' + fp.s : ''), { credentials: 'omit' })
       .then(function (r) { return r.ok ? r.json() : { need: false }; })
       .then(function (j) {
         if (!j.need || !pv || pv.path !== path) return;
@@ -48,7 +96,7 @@
         if (!html || html.length > 3e6) return;
         var g2 = dims();
         fetch(snapApi, { method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify({ k: key, p: path, vw: g2.vw, vh: g2.vh, dw: g2.dw, dh: g2.dh, html: html }) });
+          body: JSON.stringify({ k: key, p: path, vw: g2.vw, vh: g2.vh, dw: g2.dw, dh: g2.dh, s: fp ? fp.s : null, html: html }) });
       })['catch'](function () {});
   }
   function snapshotHtml() {

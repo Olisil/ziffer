@@ -7,7 +7,7 @@ import Bars from '../../../components/Bars.astro';
 import SessionRow from '../../../components/SessionRow.astro';
 import InstallSnippet from '../../../components/InstallSnippet.astro';
 import { loadEnvPage, fmt } from '../../../lib/page';
-import { rangeOf, url } from '../../../lib/server';
+import { rangeOf, rangeQuery, url } from '../../../lib/server';
 import { dashboard } from '../../../lib/stats';
 
 const ctx = await loadEnvPage(Astro);
@@ -16,7 +16,7 @@ const { env, project, projects, environments, devUser } = ctx;
 const r = rangeOf(Astro.url);
 const data = env.kind === 'web' ? await dashboard(env.id, r.from, r.to, r.prevFrom, r.days) : null;
 const empty = data && data.now.sessions === 0 && data.prev.sessions === 0;
-const q = `?range=${r.key}`;
+const q = `?${rangeQuery(r)}`;
 const pct = (n: number, total: number) => (total ? Math.round((n / total) * 100) : 0);
 const deviceTotal = data ? data.devices.reduce((a, d) => a + d.n, 0) : 0;
 const refTotal = data ? data.referrers.reduce((a, d) => a + d.n, 0) : 0;

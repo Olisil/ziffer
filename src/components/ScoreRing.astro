@@ -1,0 +1,15 @@
+---
+interface Props { score: number | null; label: string; size?: number; delta?: number | null; href?: string }
+const { score, label, size = 88, delta = null, href } = Astro.props;
+const r = 15.9155, c = 100;
+const tone = score === null ? 'none' : score >= 85 ? 'good' : score >= 60 ? 'ok' : 'bad';
+const Tag = href ? 'a' : 'div';
+---
+<Tag class={`z-ring ${tone}`} href={href} style={`--size:${size}px`}>
+  <svg viewBox="0 0 36 36" width={size} height={size} aria-hidden="true">
+    <circle cx="18" cy="18" r={r} class="z-ring-track" />
+    {score !== null && <circle cx="18" cy="18" r={r} class="z-ring-bar" stroke-dasharray={`${score} ${c - score}`} stroke-dashoffset="25" />}
+  </svg>
+  <span class="z-ring-num">{score ?? '–'}</span>
+  <span class="z-ring-label">{label}{delta !== null && delta !== 0 && <small class={delta > 0 ? 'up' : 'down'}>{delta > 0 ? '+' : ''}{delta}</small>}</span>
+</Tag>

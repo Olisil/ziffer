@@ -1,0 +1,159 @@
+---
+import App from '../../../../layouts/App.astro';
+import AppHeader from '../../../../components/AppHeader.astro';
+import ScoreRing from '../../../../components/ScoreRing.astro';
+import { loadEnvPage, fmt } from '../../../../lib/page';
+import { db, url } from '../../../../lib/server';
+import { latestAudits, queueAudit, type Check } from '../../../../lib/audit';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser } = ctx;
+if (env.kind !== 'web') return Astro.redirect(url(`e/${env.id}`));
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (form.get('action') === 'all') {
+    // Queue the pages people actually visit (up to 40), most visited first.
+    const top = (await db().prepare('SELECT path, COUNT(*) AS n FROM pageviews WHERE env_id = ? AND ts > ? GROUP BY path ORDER BY n DESC LIMIT 40')
+      .bind(env.id, Date.now() - 30 * 864e5).all<{ path: string }>()).results;
+    for (const t of top.length ? top : [{ path: '/' }]) await queueAudit(env.id, t.path, 'manual');
+  }
+  return Astro.redirect(Astro.url.pathname);
+}
+
+const latest = await latestAudits(env.id);
+const pending = (await db().prepare("SELECT path, trigger FROM audits WHERE env_id = ? AND status IN ('pending', 'running') ORDER BY queued").bind(env.id).all<{ path: string; trigger: string }>()).results;
+const errors = (await db().prepare("SELECT path, error, ran_at FROM audits a1 WHERE env_id = ? AND status = 'error' AND ran_at > ? ORDER BY ran_at DESC LIMIT 5").bind(env.id, Date.now() - 864e5).all<{ path: string; error: string; ran_at: number }>()).results;
+// Previous audit per page, for "what changed since last time".
+const prevRows = (await db().prepare(
+  `SELECT a.path, a.seo, a.aeo, a.tech FROM audits a WHERE a.env_id = ? AND a.status = 'done'
+     AND a.ran_at = (SELECT MAX(b.ran_at) FROM audits b WHERE b.env_id = a.env_id AND b.path = a.path AND b.status = 'done'
+                       AND b.ran_at < (SELECT MAX(c.ran_at) FROM audits c WHERE c.env_id = a.env_id AND c.path = a.path AND c.status = 'done'))`,
+).bind(env.id).all<{ path: string; seo: number; aeo: number; tech: number }>()).results;
+const prev = new Map(prevRows.map((r) => [r.path, r]));
+const avg = (k: 'seo' | 'aeo' | 'tech') => (latest.length ? Math.round(latest.reduce((a, r) => a + (r[k] ?? 0), 0) / latest.length) : null);
+const avgPrev = (k: 'seo' | 'aeo' | 'tech') => {
+  const xs = latest.map((r) => prev.get(r.path)?.[k] ?? r[k] ?? 0);
+  return xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
+};
+const delta = (k: 'seo' | 'aeo' | 'tech') => { const a = avg(k), b = avgPrev(k); return a !== null && b !== null ? a - b : null; };
+
+// The most common problems across all pages: where fixing one thing helps most.
+const issues = new Map<string, { title: string; cat: string; pages: string[]; status: string; weight: number; fix: string }>();
+for (const a of latest) {
+  let checks: Check[] = [];
+  try { checks = JSON.parse(a.results || '{}').checks || []; } catch {}
+  for (const c of checks) if (c.status === 'fail' || c.status === 'warn') {
+    const k = c.id;
+    const it = issues.get(k) ?? { title: c.title, cat: c.cat, pages: [], status: c.status, weight: c.weight, fix: c.fix };
+    it.pages.push(a.path);
+    if (c.status === 'fail') it.status = 'fail';
+    issues.set(k, it);
+  }
+}
+const top = [...issues.values()].sort((a, b) => b.weight * b.pages.length * (b.status === 'fail' ? 2 : 1) - a.weight * a.pages.length * (a.status === 'fail' ? 2 : 1)).slice(0, 6);
+const triggerText: Record<string, string> = { first: 'First check', content: 'Content changed', structure: 'Layout changed', template: 'Header/menu changed', version: 'New site version', manual: 'Checked on request' };
+const catName: Record<string, string> = { seo: 'SEO', aeo: 'AEO', tech: 'Technical' };
+const tone = (n: number | null) => (n === null ? '' : n >= 85 ? 'good' : n >= 60 ? 'ok' : 'bad');
+const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
+---
+<App title={`${env.name} · Audits`}>
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} />
+  <main class="z-main" style="max-width:1120px">
+    <div class="z-title-row">
+      <div>
+        <div class="z-eyebrow">{project.name} · {env.name}{lastRun ? ` · last checked ${fmt.date(lastRun)} ${fmt.time(lastRun)}` : ''}</div>
+        <h1 class="z-h1">Audits</h1>
+      </div>
+      <div class="z-spacer"></div>
+      <form method="post"><input type="hidden" name="action" value="all" /><button class="z-btn z-btn-secondary" type="submit">Check all pages now</button></form>
+    </div>
+    <p class="muted z-lead">
+      Pages are checked automatically when Ziffer notices new content or a new layout, the way Google and AI crawlers read them — as plain HTML, without running scripts.{' '}
+      <b>SEO</b> is about being found in search, <b>AEO</b> about being understood and quoted by AI answer engines like ChatGPT, Perplexity and Google’s AI overviews, and{' '}
+      <b>Technical</b> about the basics underneath. Open any page to see every check and how to fix it.
+    </p>
+
+    {pending.length > 0 && (
+      <div class="z-card z-audit-running" data-audit-runner={url(`e/${env.id}/audits/run`)}>
+        <span class="z-spinner" aria-hidden="true"></span>
+        <span><b>Checking {pending.length} {pending.length === 1 ? 'page' : 'pages'}…</b> <span class="muted">{pending.slice(0, 4).map((p) => p.path).join(', ')}{pending.length > 4 ? '…' : ''}</span></span>
+      </div>
+    )}
+    {errors.length > 0 && <p class="z-card" style="margin:0;color:var(--z-coral)">Couldn’t check {errors[0].path}: {errors[0].error}</p>}
+
+    {latest.length === 0 && pending.length === 0 ? (
+      <section class="z-empty">
+        <h2 style="font-size:18px">No audits yet</h2>
+        <p class="muted" style="margin:0;max-width:560px">The first audits run on their own as visits come in. You can also start them now.</p>
+        <form method="post"><input type="hidden" name="action" value="all" /><button class="z-btn z-btn-primary" type="submit">Check {env.domain} now</button></form>
+      </section>
+    ) : latest.length > 0 && (
+      <>
+        <section class="z-card z-audit-scores">
+          <ScoreRing score={avg('seo')} label="SEO" delta={delta('seo')} />
+          <ScoreRing score={avg('aeo')} label="AEO" delta={delta('aeo')} />
+          <ScoreRing score={avg('tech')} label="Technical" delta={delta('tech')} />
+          <div class="z-audit-scores-note muted">Average of the latest check of {latest.length} {latest.length === 1 ? 'page' : 'pages'}. The small number is the change since each page’s previous check.</div>
+        </section>
+
+        {top.length > 0 && (
+          <section class="z-card">
+            <div class="z-card-head"><span class="z-card-title">Fix these first</span><span class="z-card-hint">Biggest effect across the site</span></div>
+            <ul class="z-issues">
+              {top.map((t) => (
+                <li>
+                  <span class={`z-st ${t.status}`} aria-label={t.status === 'fail' ? 'Failing' : 'Needs work'}></span>
+                  <span class="z-issue-main"><b>{t.title}</b><span class="muted">{t.fix}</span></span>
+                  <span class="z-chip">{catName[t.cat]}</span>
+                  <span class="muted z-issue-pages" title={t.pages.join('\n')}>{t.pages.length} {t.pages.length === 1 ? 'page' : 'pages'}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section class="z-card">
+          <div class="z-card-head"><span class="z-card-title">Pages</span><span class="z-card-hint">Latest check of each page</span></div>
+          <div class="z-audit-table" role="table">
+            <div class="z-audit-row head" role="row"><span>Page</span><span>SEO</span><span>AEO</span><span>Tech</span><span>Why it was checked</span><span></span></div>
+            {latest.map((a) => {
+              const p = prev.get(a.path);
+              const d = (k: 'seo' | 'aeo' | 'tech') => (p ? (a[k] ?? 0) - (p[k] ?? 0) : 0);
+              let title = '';
+              try { title = JSON.parse(a.results || '{}').title || ''; } catch {}
+              return (
+                <a class="z-audit-row" role="row" href={url(`e/${env.id}/audits/page?path=${encodeURIComponent(a.path)}`)}>
+                  <span class="z-audit-page"><b>{a.path}</b><span class="muted">{title}</span></span>
+                  {(['seo', 'aeo', 'tech'] as const).map((k) => (
+                    <span class={`z-pill ${tone(a[k])}`}>{a[k] ?? '–'}{d(k) !== 0 && <small class={d(k) > 0 ? 'up' : 'down'}>{d(k) > 0 ? '+' : ''}{d(k)}</small>}</span>
+                  ))}
+                  <span class="muted z-audit-why">{triggerText[a.trigger] ?? a.trigger} · {fmt.date(a.ran_at!)}</span>
+                  <span class="z-sc-go" aria-hidden="true">›</span>
+                </a>
+              );
+            })}
+          </div>
+        </section>
+      </>
+    )}
+  </main>
+</App>
+<script>
+  // While audits are waiting, run them one at a time and refresh when done.
+  const box = document.querySelector<HTMLElement>('[data-audit-runner]');
+  if (box) {
+    const endpoint = box.dataset.auditRunner!;
+    const step = async (): Promise<void> => {
+      try {
+        const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
+        const j = await r.json();
+        if (j.pending > 0 && j.ran > 0) return step();
+        if (j.pending > 0) { setTimeout(step, 4000); return; }
+      } catch {}
+      location.reload();
+    };
+    step();
+  }
+</script>

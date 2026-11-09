@@ -15,7 +15,8 @@
   "dependencies": {
     "@astrojs/cloudflare": "^14.4.6",
     "@clerk/astro": "^4.1.22",
-    "astro": "^7.4.7"
+    "astro": "^7.4.7",
+    "node-html-parser": "9.0.5"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261106.1",

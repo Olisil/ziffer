@@ -1,0 +1,144 @@
+---
+import App from '../../../../layouts/App.astro';
+import AppHeader from '../../../../components/AppHeader.astro';
+import ScoreRing from '../../../../components/ScoreRing.astro';
+import Sparkline from '../../../../components/Sparkline.astro';
+import { loadEnvPage, fmt } from '../../../../lib/page';
+import { db, url } from '../../../../lib/server';
+import { queueAudit, type AuditRow, type Category, type Check } from '../../../../lib/audit';
+import { listVersions } from '../../../../lib/versions';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser } = ctx;
+const path = Astro.url.searchParams.get('path') || '/';
+if (!path.startsWith('/')) return new Response('Bad path', { status: 400 });
+
+if (Astro.request.method === 'POST') {
+  await queueAudit(env.id, path, 'manual');
+  return Astro.redirect(Astro.url.pathname + Astro.url.search);
+}
+
+const history = (await db().prepare("SELECT * FROM audits WHERE env_id = ? AND path = ? AND status = 'done' ORDER BY ran_at DESC LIMIT 24").bind(env.id, path).all<AuditRow>()).results;
+const pending = await db().prepare("SELECT 1 FROM audits WHERE env_id = ? AND path = ? AND status IN ('pending', 'running')").bind(env.id, path).first();
+const a = history[0], prev = history[1];
+const parsed = (r?: AuditRow) => { try { return JSON.parse(r?.results || '{}') as { title?: string; checks?: Check[] }; } catch { return {}; } };
+const now = parsed(a), before = parsed(prev);
+const checks = now.checks ?? [];
+const prevStatus = new Map((before.checks ?? []).map((c) => [c.id, c.status]));
+const versions = await listVersions(env.id, env.name);
+const versionOf = (t: number) => versions.find((v) => t >= v.from && t < v.to);
+const rank = { fail: 0, warn: 1, info: 2, pass: 3 } as const;
+const cats: { key: Category; name: string; intro: string }[] = [
+  { key: 'seo', name: 'SEO', intro: 'Can search engines find, understand and show this page well?' },
+  { key: 'aeo', name: 'AEO', intro: 'Can AI answer engines read this page, trust it and quote it?' },
+  { key: 'tech', name: 'Technical', intro: 'Does the page load correctly, quickly and securely for crawlers and phones?' },
+];
+const lost = (c: Check) => (c.status === 'pass' ? 0 : c.status === 'warn' ? c.weight / 2 : c.weight);
+const catWeight = (k: Category) => checks.filter((c) => c.cat === k).reduce((s, c) => s + c.weight, 0) || 1;
+const changed = checks.filter((c) => prevStatus.has(c.id) && prevStatus.get(c.id) !== c.status);
+const series = (k: 'seo' | 'aeo' | 'tech') => [...history].reverse().map((h) => h[k] ?? 0);
+const statusWord = { pass: 'Passes', warn: 'Needs work', fail: 'Failing', info: 'Info' } as const;
+const triggerText: Record<string, string> = { first: 'first check', content: 'content changed', structure: 'layout changed', template: 'header/menu changed', version: 'new site version', manual: 'checked on request' };
+---
+<App title={`${path} · Audit`}>
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} />
+  <main class="z-main" style="max-width:1080px">
+    <nav class="z-story-nav"><a class="z-back" href={url(`e/${env.id}/audits`)}>← All audited pages</a></nav>
+
+    {!a ? (
+      <section class="z-empty">
+        <h2 style="font-size:18px">{path} hasn’t been checked yet</h2>
+        {pending ? <p class="muted" data-audit-runner={url(`e/${env.id}/audits/run`)}>Checking now…</p>
+          : <form method="post"><button class="z-btn z-btn-primary" type="submit">Check this page</button></form>}
+      </section>
+    ) : (
+      <>
+        <section class="z-card z-audit-head">
+          <div class="z-audit-title">
+            <div class="z-eyebrow">Checked {fmt.date(a.ran_at!)} {fmt.time(a.ran_at!)} · {triggerText[a.trigger] ?? a.trigger}{versionOf(a.ran_at!) ? ` · ${versionOf(a.ran_at!)!.label}` : ''}</div>
+            <h1 class="z-h1">{path}</h1>
+            <div class="muted">{now.title || 'No title'}</div>
+            <div class="z-story-meta">
+              <a class="z-link" href={a.url!} target="_blank" rel="noopener noreferrer">{a.url} ↗</a>
+              <span>HTTP {a.http_status} · {a.fetch_ms} ms · {Math.round((a.bytes ?? 0) / 1024)} KB</span>
+            </div>
+            {pending ? <span class="muted" data-audit-runner={url(`e/${env.id}/audits/run`)}><span class="z-spinner"></span> Re-checking…</span>
+              : <form method="post"><button class="z-btn z-btn-secondary" type="submit">Check again now</button></form>}
+          </div>
+          <div class="z-audit-rings">
+            <ScoreRing score={a.seo} label="SEO" delta={prev ? (a.seo ?? 0) - (prev.seo ?? 0) : null} href="#cat-seo" />
+            <ScoreRing score={a.aeo} label="AEO" delta={prev ? (a.aeo ?? 0) - (prev.aeo ?? 0) : null} href="#cat-aeo" />
+            <ScoreRing score={a.tech} label="Technical" delta={prev ? (a.tech ?? 0) - (prev.tech ?? 0) : null} href="#cat-tech" />
+          </div>
+        </section>
+
+        {history.length > 1 && (
+          <section class="z-card">
+            <div class="z-card-head"><span class="z-card-title">Over time</span><span class="z-card-hint">{history.length} checks since {fmt.date(history[history.length - 1].ran_at!)}</span></div>
+            <div class="z-audit-trends">
+              {(['seo', 'aeo', 'tech'] as const).map((k) => (
+                <div><span class="z-kpi-label">{k === 'tech' ? 'Technical' : k.toUpperCase()}</span><span class="z-trend"><Sparkline values={series(k)} height={36} label={`${k} score over time`} /></span></div>
+              ))}
+            </div>
+            {changed.length > 0 && (
+              <ul class="z-audit-diff">
+                {changed.map((c) => (
+                  <li class={rank[c.status] > rank[prevStatus.get(c.id)!] ? 'up' : 'down'}>
+                    {rank[c.status] > rank[prevStatus.get(c.id)!] ? '↑ Improved' : '↓ Got worse'}: <b>{c.title}</b> <span class="muted">({statusWord[prevStatus.get(c.id)!]} → {statusWord[c.status]})</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        {cats.map((cat) => {
+          const list = checks.filter((c) => c.cat === cat.key).sort((x, y) => rank[x.status] - rank[y.status] || y.weight - x.weight);
+          const score = a[cat.key];
+          return (
+            <section class="z-card z-audit-cat" id={`cat-${cat.key}`}>
+              <div class="z-audit-cat-head">
+                <h2>{cat.name}<span class={`z-pill ${score === null ? '' : score >= 85 ? 'good' : score >= 60 ? 'ok' : 'bad'}`}>{score ?? '–'}</span></h2>
+                <p class="muted">{cat.intro} Each check counts by its weight; “needs work” earns half.</p>
+              </div>
+              <div class="z-checks">
+                {list.map((c) => (
+                  <details class={`z-check ${c.status}`} open={c.status === 'fail'}>
+                    <summary>
+                      <span class={`z-st ${c.status}`} aria-label={statusWord[c.status]}></span>
+                      <span class="z-check-title"><b>{c.title}</b>{c.scope === 'site' && <span class="z-chip">Site-wide</span>}<span class="muted">{c.found}</span></span>
+                      <span class="z-check-pts" title={`Worth ${c.weight} of ${catWeight(cat.key)} points in ${cat.name}`}>
+                        {lost(c) > 0 ? <span class="down">−{Math.round((lost(c) / catWeight(cat.key)) * 100)}</span> : <span class="up">✓</span>}
+                      </span>
+                    </summary>
+                    <dl class="z-check-body">
+                      <div><dt>Found</dt><dd>{c.found}</dd></div>
+                      <div><dt>Why it matters</dt><dd>{c.why}</dd></div>
+                      {c.status !== 'pass' && <div><dt>How to fix</dt><dd>{c.fix}</dd></div>}
+                      <div><dt>Weight</dt><dd>{c.weight} of {catWeight(cat.key)} points in {cat.name} · {statusWord[c.status].toLowerCase()} {c.status === 'warn' ? '(half the points)' : ''}</dd></div>
+                    </dl>
+                  </details>
+                ))}
+              </div>
+            </section>
+          );
+        })}
+      </>
+    )}
+  </main>
+</App>
+<script>
+  const box = document.querySelector<HTMLElement>('[data-audit-runner]');
+  if (box) {
+    const endpoint = box.dataset.auditRunner!;
+    const step = async (): Promise<void> => {
+      try {
+        const j = await (await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' })).json();
+        if (j.pending > 0) { setTimeout(step, j.ran ? 200 : 3000); return; }
+      } catch {}
+      location.reload();
+    };
+    step();
+  }
+</script>

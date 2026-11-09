@@ -3,7 +3,9 @@ import { RANGES } from '../lib/server';
 interface Props { eyebrow: string; title: string; range?: string; showRange?: boolean }
 const { eyebrow, title, range = '7d', showRange = true } = Astro.props;
 const here = new URL(Astro.url);
-const linkFor = (k: string) => { const u = new URL(here); u.searchParams.set('range', k); return u.pathname + u.search; };
+const linkFor = (k: string) => { const u = new URL(here); u.searchParams.set('range', k); ['from', 'to', 'vl'].forEach((x) => u.searchParams.delete(x)); return u.pathname + u.search; };
+const customLabel = here.searchParams.get('vl') || 'Custom period';
+const clearCustom = linkFor('30d');
 const labels: Record<string, string> = { '24h': '24 h', '7d': '7 days', '30d': '30 days', '90d': '90 days' };
 ---
 <div class="z-title-row">
@@ -12,6 +14,7 @@ const labels: Record<string, string> = { '24h': '24 h', '7d': '7 days', '30d': '
     <h1 class="z-h1">{title}</h1>
   </div>
   <div class="z-spacer"></div>
+  {showRange && range === 'custom' && <a class="z-range-chip" href={clearCustom} title="Back to a normal date range">{customLabel}<span aria-hidden="true">×</span></a>}
   {showRange && (
     <nav class="z-range" aria-label="Date range">
       {Object.keys(RANGES).map((k) => <a href={linkFor(k)} aria-current={k === range ? 'true' : undefined}>{labels[k]}</a>)}

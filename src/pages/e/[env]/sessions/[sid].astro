@@ -8,6 +8,7 @@ import { loadEnvPage, fmt } from '../../../../lib/page';
 import { url } from '../../../../lib/server';
 import { sessionStory } from '../../../../lib/stats';
 import { getSnapshot } from '../../../../lib/snapshots';
+import { listVersions } from '../../../../lib/versions';
 import { countryName, flag, signalsOf } from '../../../../lib/look';
 
 const ctx = await loadEnvPage(Astro);
@@ -20,10 +21,12 @@ const q = Astro.url.search;
 const back = url(`e/${env.id}/sessions${q}`);
 
 const bucket = (vw: number) => (vw && vw < 768 ? 'mobile' : 'desktop');
+const versions = await listVersions(env.id, env.name);
+const ver = versions.find((x) => s.started >= x.from && s.started < x.to) ?? null;
 const snaps = new Map<string, Awaited<ReturnType<typeof getSnapshot>>>();
 for (const v of views) {
   const k = `${bucket(v.vw)}|${v.path}`;
-  if (!snaps.has(k)) snaps.set(k, await getSnapshot(env.id, v.path, bucket(v.vw)).catch(() => null));
+  if (!snaps.has(k)) snaps.set(k, await getSnapshot(env.id, v.path, bucket(v.vw), { from: ver?.from, to: ver && Number.isFinite(ver.to) ? ver.to : undefined }).catch(() => null));
 }
 const allClicks = views.flatMap((v) => v.clicks);
 const maxScroll = Math.max(0, ...views.map((v) => v.scroll || 0));
@@ -51,7 +54,7 @@ const chapters = views.map((v, i) => {
       seen,
       clicks: pts,
     },
-    snapshotUrl: snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(v.path)}&device=${bucket(v.vw)}&v=${snap.ts}`) : null,
+    snapshotUrl: snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(v.path)}&device=${bucket(v.vw)}&sv=${encodeURIComponent(snap.version_id)}&v=${snap.ts}`) : null,
   };
 });
 const tech = [s.browser, s.os].filter(Boolean).join(' on ');

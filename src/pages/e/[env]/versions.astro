@@ -1,0 +1,188 @@
+---
+import App from '../../../layouts/App.astro';
+import AppHeader from '../../../components/AppHeader.astro';
+import { loadEnvPage, fmt } from '../../../lib/page';
+import { db, url } from '../../../lib/server';
+import { listVersions, type VersionView } from '../../../lib/versions';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser } = ctx;
+if (env.kind !== 'web') return Astro.redirect(url(`e/${env.id}`));
+
+let notice = '';
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const vid = String(form.get('version') || '');
+  const own = await db().prepare('SELECT id, detected_at FROM site_versions WHERE id = ? AND env_id = ?').bind(vid, env.id).first<{ id: string; detected_at: number }>();
+  const action = String(form.get('action'));
+  if (own && action === 'rename') {
+    const name = String(form.get('name') || '').trim().slice(0, 60);
+    await db().prepare('UPDATE site_versions SET name = ? WHERE id = ?').bind(name || null, own.id).run();
+    return Astro.redirect(url(`e/${env.id}/versions?saved=${own.id}#v-${own.id}`));
+  }
+  if (own && action === 'merge') {
+    // Fold this version into the one before it; anything merged into this one follows along.
+    const prev = await db().prepare('SELECT id FROM site_versions WHERE env_id = ? AND merged_into IS NULL AND detected_at < ? ORDER BY detected_at DESC LIMIT 1')
+      .bind(env.id, own.detected_at).first<{ id: string }>();
+    if (prev) {
+      await db().batch([
+        db().prepare('UPDATE site_versions SET merged_into = ? WHERE id = ? OR merged_into = ?').bind(prev.id, own.id, own.id),
+        db().prepare('UPDATE page_changes SET version_id = ? WHERE version_id = ?').bind(prev.id, own.id),
+      ]);
+      return Astro.redirect(url(`e/${env.id}/versions#v-${prev.id}`));
+    }
+    notice = 'The first version can’t be merged into anything.';
+  }
+  if (own && action === 'unmerge') {
+    await db().prepare('UPDATE site_versions SET merged_into = NULL WHERE id = ?').bind(own.id).run();
+    await db().prepare('UPDATE page_changes SET version_id = ? WHERE env_id = ? AND at >= ? AND at < ? + 259200000').bind(own.id, env.id, own.detected_at, own.detected_at).run();
+    return Astro.redirect(url(`e/${env.id}/versions#v-${own.id}`));
+  }
+}
+
+const versions = await listVersions(env.id, env.name);
+type Stats = { sessions: number; visitors: number; engagement: number; rage: number; quick: number; seo: number | null; aeo: number | null; tech: number | null; pages: number };
+const statsFor = async (v: VersionView): Promise<Stats> => {
+  const to = Number.isFinite(v.to) ? v.to : Date.now() + 1;
+  const [s, a] = await Promise.all([
+    db().prepare(`SELECT COUNT(*) AS sessions, COUNT(DISTINCT visitor) AS visitors, COALESCE(AVG(duration), 0) AS engagement, COALESCE(SUM(rage), 0) AS rage,
+                         COALESCE(SUM(CASE WHEN pageviews <= 1 AND duration < 10 THEN 1 ELSE 0 END), 0) AS quick
+                    FROM sessions WHERE env_id = ? AND started >= ? AND started < ?`).bind(env.id, v.from, to).first<Stats>(),
+    db().prepare(`SELECT ROUND(AVG(seo)) AS seo, ROUND(AVG(aeo)) AS aeo, ROUND(AVG(tech)) AS tech, COUNT(DISTINCT path) AS pages
+                    FROM audits WHERE env_id = ? AND status = 'done' AND ran_at >= ? AND ran_at < ?`).bind(env.id, v.from, to).first<{ seo: number | null; aeo: number | null; tech: number | null; pages: number }>(),
+  ]);
+  return { ...s!, ...a!, pages: a?.pages ?? 0 };
+};
+const stats = await Promise.all(versions.map(statsFor));
+const changes = (await db().prepare('SELECT path, device, at, kind, distance, version_id FROM page_changes WHERE env_id = ? ORDER BY at DESC LIMIT 200').bind(env.id).all<{ path: string; device: string; at: number; kind: string; distance: number; version_id: string | null }>()).results;
+const reasonOf = (v: VersionView) => { try { return JSON.parse(v.reason || '{}'); } catch { return {}; } };
+const whenFull = (t: number) => `${fmt.date(t)} ${new Date(t).getFullYear()} · ${fmt.time(t)}`;
+const rangeLink = (v: VersionView, page = '') => url(`e/${env.id}${page}?from=${v.from}&to=${Number.isFinite(v.to) ? v.to : Date.now() + 864e5}&vl=${encodeURIComponent(v.label)}`);
+const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0);
+const kindText: Record<string, string> = { template: 'Header, menu or footer changed', structure: 'Page layout changed', content: 'Content changed' };
+const order = [...versions].reverse();
+const saved = Astro.url.searchParams.get('saved');
+---
+<App title={`${env.name} · Versions`}>
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="versions" devUser={devUser} />
+  <main class="z-main" style="max-width:1080px">
+    <div class="z-title-row">
+      <div>
+        <div class="z-eyebrow">{project.name} · {env.name}</div>
+        <h1 class="z-h1">Versions</h1>
+      </div>
+    </div>
+    <p class="muted z-lead">
+      Ziffer starts a new version when the site’s layout changes for real: the shared header, menu or footer changes, many pages get a new layout,
+      or the start page is redesigned — and the change sticks across visits. Text edits don’t count, but they do trigger new audits.
+      The date is when the new layout first appeared and can’t be changed. Merge a version back if it wasn’t a real release.
+    </p>
+    {notice && <p class="z-card" role="alert" style="margin:0">{notice}</p>}
+
+    {versions.length === 0 && (
+      <section class="z-empty">
+        <h2 style="font-size:18px">No versions yet</h2>
+        <p class="muted" style="margin:0">Version 1.0 appears with the next visit to {env.domain} — the tracker needs to see the layout once.</p>
+      </section>
+    )}
+
+    <ol class="z-vlist">
+      {order.map((v) => {
+        const i = versions.indexOf(v), st = stats[i], prev = i > 0 ? stats[i - 1] : null, r = reasonOf(v), current = i === versions.length - 1;
+        const vChanges = changes.filter((c) => c.version_id === v.id || v.merged.some((m) => m.id === c.version_id));
+        return (
+          <li class:list={['z-vcard', { current }]} id={`v-${v.id}`}>
+            <div class="z-vrail" aria-hidden="true"><span class="z-vdot"></span></div>
+            <article class="z-card">
+              <header class="z-vhead">
+                <span class="z-vnum">{v.n}.0</span>
+                <form method="post" class="z-vname">
+                  <input type="hidden" name="action" value="rename" /><input type="hidden" name="version" value={v.id} />
+                  <input class="z-input" name="name" maxlength="60" value={v.name ?? ''} placeholder={`${env.name} ${v.n}.0`} aria-label="Version name" />
+                  <button class="z-btn z-btn-secondary" type="submit">{saved === v.id ? 'Saved' : 'Rename'}</button>
+                </form>
+                {current && <span class="z-chip z-chip-live">Current</span>}
+              </header>
+              <div class="z-vmeta">
+                <span title="When the new layout first appeared on the site. Set by Ziffer, not editable.">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /></svg>
+                  Appeared {whenFull(v.detected_at)}
+                </span>
+                {Number.isFinite(v.to) && <span>Until {fmt.date(v.to)} {new Date(v.to).getFullYear()}</span>}
+                {!r.initial && <span class="muted">Recognised {fmt.date(v.created)}</span>}
+              </div>
+              <div class="z-vreason">
+                {r.initial ? <span class="z-signal bounce">Tracking started</span> : <>
+                  {r.home && <span class="z-signal engaged">Start page redesigned</span>}
+                  {r.template > 0 && <span class="z-signal dead">Header/menu/footer changed on {r.template} {r.template === 1 ? 'page' : 'pages'}</span>}
+                  {r.structure > 0 && <span class="z-signal rage">New layout on {r.structure} {r.structure === 1 ? 'page' : 'pages'}</span>}
+                </>}
+              </div>
+              <dl class="z-vstats">
+                <div><dt>Visitors</dt><dd>{fmt.int(st.visitors)}</dd></div>
+                <div><dt>Avg. engagement</dt><dd>{fmt.dur(st.engagement)}{prev && prev.sessions > 0 && st.sessions > 0 && <small class={st.engagement >= prev.engagement ? 'up' : 'down'}>{st.engagement >= prev.engagement ? '↑' : '↓'} {fmt.dur(Math.abs(st.engagement - prev.engagement))}</small>}</dd></div>
+                <div><dt>Quick exits</dt><dd>{pct(st.quick, st.sessions)}%{prev && prev.sessions > 0 && st.sessions > 0 && <small class={pct(st.quick, st.sessions) <= pct(prev.quick, prev.sessions) ? 'up' : 'down'}>{pct(st.quick, st.sessions) - pct(prev.quick, prev.sessions) > 0 ? '+' : ''}{pct(st.quick, st.sessions) - pct(prev.quick, prev.sessions)} pt</small>}</dd></div>
+                <div><dt>Rage / 100 visits</dt><dd>{st.sessions ? Math.round((st.rage / st.sessions) * 100) : 0}</dd></div>
+                <div><dt>SEO · AEO · Tech</dt><dd>{st.pages ? `${st.seo} · ${st.aeo} · ${st.tech}` : '—'}</dd></div>
+              </dl>
+              <footer class="z-vactions">
+                <a class="z-btn z-btn-secondary" href={rangeLink(v)}>Dashboard for {v.n}.0</a>
+                <a class="z-btn z-btn-secondary" href={rangeLink(v, '/heatmaps')}>Heatmaps</a>
+                <a class="z-btn z-btn-secondary" href={rangeLink(v, '/sessions')}>Sessions</a>
+                <span class="z-spacer"></span>
+                {i > 0 && (
+                  <details class="z-confirm">
+                    <summary class="z-link">Not a real new version?</summary>
+                    <form method="post">
+                      <input type="hidden" name="action" value="merge" /><input type="hidden" name="version" value={v.id} />
+                      <p class="muted">Merges it into {versions[i - 1].label}. Its stats and pages count as part of {versions[i - 1].n}.0. You can undo this.</p>
+                      <button class="z-btn z-btn-secondary" type="submit">Merge into {versions[i - 1].n}.0</button>
+                    </form>
+                  </details>
+                )}
+              </footer>
+              {v.merged.length > 0 && (
+                <div class="z-vmerged">
+                  {v.merged.map((m) => (
+                    <form method="post" class="z-vmerged-row">
+                      <input type="hidden" name="action" value="unmerge" /><input type="hidden" name="version" value={m.id} />
+                      <span class="muted">Merged in: {m.name || 'a detected change'} · appeared {whenFull(m.detected_at)}</span>
+                      <button class="z-link" type="submit">Undo merge</button>
+                    </form>
+                  ))}
+                </div>
+              )}
+              {vChanges.length > 0 && (
+                <details class="z-vchanges">
+                  <summary>{vChanges.length} page {vChanges.length === 1 ? 'change' : 'changes'} in this release</summary>
+                  <ul>
+                    {vChanges.slice(0, 60).map((c) => (
+                      <li><span class="z-vpath">{c.path}</span><span class="muted">{kindText[c.kind]} · {c.device}</span><span class="z-vbar" title={`${c.distance} of 64 layout bits differ`}><i style={`width:${Math.round((c.distance / 32) * 100)}%`}></i></span><span class="muted">{fmt.date(c.at)}</span></li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </article>
+          </li>
+        );
+      })}
+    </ol>
+
+    {changes.some((c) => !c.version_id || c.kind === 'content') && (
+      <section class="z-card">
+        <div class="z-card-head"><span class="z-card-title">Smaller changes</span><span class="z-card-hint">Not a new version, but each one is re-audited</span></div>
+        <ul class="z-vsmall">
+          {changes.filter((c) => !c.version_id || c.kind === 'content').slice(0, 30).map((c) => (
+            <li>
+              <span class="z-vpath">{c.path}</span>
+              <span class="muted">{kindText[c.kind]} · {c.device}</span>
+              <span class="muted">{whenFull(c.at)}</span>
+              <a class="z-link" href={url(`e/${env.id}/audits/page?path=${encodeURIComponent(c.path)}`)}>Audit →</a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+  </main>
+</App>

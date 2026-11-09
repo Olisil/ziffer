@@ -71,7 +71,7 @@ const activeFilters = [f.device, f.source, f.country, f.page].filter(Boolean).le
     </section>
 
     <form class="z-filterbar" method="get">
-      <input type="hidden" name="range" value={r.key} />
+      {r.key === 'custom' ? <><input type="hidden" name="from" value={r.from} /><input type="hidden" name="to" value={r.to} />{r.label && <input type="hidden" name="vl" value={r.label} />}</> : <input type="hidden" name="range" value={r.key} />}
       {f.signal && <input type="hidden" name="signal" value={f.signal} />}
       <nav class="z-seg" aria-label="Device">
         <a href={link({ device: undefined })} aria-current={String(!f.device)}>All</a>
