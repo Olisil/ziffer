@@ -46,7 +46,7 @@ const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolea
     <div class="z-akpi"><span>Sessions, 30 days</span><b>{fmt.int(usage.counts.reduce((a, b) => a + b, 0))}</b><small>{envs.length} of 4 environments</small></div>
     <div class="z-akpi"><span>People</span><b>{members.length}</b><small>{members.filter((m) => m.access === 'pro').length} Pro · {members.filter((m) => m.access === 'basic').length} Basic</small></div>
     <div class="z-akpi"><span>Paid seats</span><b>{seats}</b><small>{price ? `≈ ${money(Math.round((seatDays / dim) * price.amount), price.currency)} so far this month` : 'No seat price set'}</small></div>
-    <div class="z-akpi"><span>Billing</span><b>{p.billing_status === 'past_due' ? 'Payment failed' : p.stripe_customer ? 'Card on file' : seats ? 'No card yet' : 'Free'}</b><small>Created {fmt.date(p.created)}</small></div>
+    <div class="z-akpi"><span>Billing</span><b>{p.billing_status === 'past_due' ? 'Payment failed' : p.billing_status === 'active' ? 'Card on file' : p.stripe_customer ? 'Checkout not finished' : seats ? 'No card yet' : 'Free'}</b><small>Created {fmt.date(p.created)}</small></div>
   </section>
 
   <section class="z-card">

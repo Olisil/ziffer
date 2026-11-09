@@ -103,7 +103,7 @@ const statusChip: Record<string, string> = { paid: 'good', failed: 'bad', open: 
         <thead><tr><th>Project</th><th class="num">Seats</th><th>Per month</th><th>Card</th></tr></thead>
         <tbody>{owed.map((p) => (
           <tr><td><a href={url(`admin/projects/${p.id}`)}><b>{p.name}</b></a></td><td class="num">{p.seats}</td><td>{price ? money(p.seats * price.amount, price.currency) : '—'}</td>
-            <td>{p.billing_status === 'past_due' ? <span class="z-chip bad">Payment failed</span> : p.stripe_customer ? <span class="z-chip good">On file</span> : <span class="z-chip warn">Missing</span>}</td></tr>
+            <td>{p.billing_status === 'past_due' ? <span class="z-chip bad">Payment failed</span> : p.billing_status === 'active' ? <span class="z-chip good">On file</span> : p.stripe_customer ? <span class="z-chip warn">Checkout not finished</span> : <span class="z-chip warn">Missing</span>}</td></tr>
         ))}</tbody>
       </table></div>
     )}

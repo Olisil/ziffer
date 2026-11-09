@@ -137,7 +137,7 @@ export async function invoiceMonth(projectId: string, month: string, price: Seat
   const DB = db();
   const done = await DB.prepare('SELECT 1 FROM billing_invoices WHERE project_id = ? AND month = ?').bind(projectId, month).first();
   if (done) return null;
-  const p = await DB.prepare('SELECT id, name, stripe_customer FROM projects WHERE id = ?').bind(projectId).first<{ id: string; name: string; stripe_customer: string | null }>();
+  const p = await DB.prepare('SELECT id, name, stripe_customer, billing_status FROM projects WHERE id = ?').bind(projectId).first<{ id: string; name: string; stripe_customer: string | null; billing_status: string | null }>();
   const seatDays = (await DB.prepare("SELECT COALESCE(SUM(seats), 0) AS n FROM billing_days WHERE project_id = ? AND substr(day, 1, 7) = ?").bind(projectId, month).first<{ n: number }>())?.n ?? 0;
   const [y, m] = month.split('-').map(Number);
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -147,7 +147,8 @@ export async function invoiceMonth(projectId: string, month: string, price: Seat
       .bind(projectId, month, seatDays, 0, price.currency, 'nothing', Date.now()).run();
     return null;
   }
-  if (!p.stripe_customer) {
+  // A customer is created when checkout opens; only a finished checkout (active) or a failed charge (past_due) means a card was saved.
+  if (!p.stripe_customer || !p.billing_status) {
     await DB.prepare('INSERT OR IGNORE INTO billing_invoices (project_id, month, seat_days, amount, currency, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .bind(projectId, month, seatDays, amount, price.currency, 'no_card', Date.now()).run();
     return null;
