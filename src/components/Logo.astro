@@ -3,10 +3,10 @@
 import { LOGO_H, LOGO_W, SYMBOL_PATHS, SYMBOL_W, WORD_PATHS } from '../lib/logo';
 interface Props { id?: string; height?: number; symbolOnly?: boolean; class?: string }
 const { height = 28, symbolOnly = false, class: cls = '' } = Astro.props;
-const vbW = symbolOnly ? SYMBOL_W : LOGO_W;
-const width = Math.round(((height * vbW) / LOGO_H) * 100) / 100;
+const vbW = symbolOnly ? SYMBOL_W : LOGO_W, vbH = symbolOnly ? 148 : LOGO_H; // the symbol alone is 147 × 148
+const width = Math.round(((height * vbW) / vbH) * 100) / 100;
 ---
-<svg class={`z-logo-svg ${cls}`} data-ziffer-logo width={width} height={height} viewBox={`0 0 ${vbW} ${LOGO_H}`} fill="currentColor"
+<svg class={`z-logo-svg ${cls}`} data-ziffer-logo width={width} height={height} viewBox={`0 0 ${vbW} ${vbH}`} fill="currentColor"
   xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Probe">
   {SYMBOL_PATHS.map((d) => <path d={d} />)}
   {!symbolOnly && WORD_PATHS.map((p) => <path d={p.d} />)}
