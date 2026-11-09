@@ -120,6 +120,7 @@ const PLANS = [
 ];
 const backTo = Astro.request.headers.get('referer')?.includes('/settings') ? url('') : Astro.request.headers.get('referer') || url('');
 const devMode = isDevUser();
+const inviteBase = `${new URL(Astro.request.url).origin}${url('invite/')}`;
 ---
 <App title="Settings">
   <AppHeader projects={projects} devUser={devMode} />
@@ -237,7 +238,7 @@ const devMode = isDevUser();
                       <span class="z-avatar z-avatar-txt">✉</span>
                       <span class="z-member-who"><b>{i.email}</b><span class="muted">Invited {fmt.date(i.created)} · expires {fmt.date(i.expires)}</span></span>
                       <span class="z-member-tags"><span class={`z-chip ${i.access}`}>{i.access === 'pro' ? 'Pro' : 'Basic'}</span><span class="muted z-seat">pending</span></span>
-                      <span class="z-member-actions">{can.invite(a) && <form method="post"><input type="hidden" name="action" value="revoke" /><input type="hidden" name="project" value={p.id} /><input type="hidden" name="token" value={i.token} /><button class="z-link" type="submit">Withdraw</button></form>}</span>
+                      <span class="z-member-actions">{can.invite(a) && <button class="z-link" type="button" data-copy={`${inviteBase}${i.token}`} onclick="navigator.clipboard.writeText(this.dataset.copy).then(()=>{this.textContent='Copied';setTimeout(()=>this.textContent='Copy link',2000)})">Copy link</button>}{can.invite(a) && <form method="post"><input type="hidden" name="action" value="revoke" /><input type="hidden" name="project" value={p.id} /><input type="hidden" name="token" value={i.token} /><button class="z-link" type="submit">Withdraw</button></form>}</span>
                     </li>
                   ))}
                 </ul>
