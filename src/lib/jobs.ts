@@ -6,7 +6,7 @@
 //  - weekly email reports
 import { db } from './server';
 import { billable, prefsOf, type User } from './users';
-import { invoiceMonth, getSetting, seatPrice, setSetting, stripeEnabled } from './stripe';
+import { ensureWebhook, invoiceMonth, getSetting, seatPrice, setSetting, stripeEnabled } from './stripe';
 import { notify, projectRecipients } from './notify';
 import { layout, mailEnabled, sendMail, esc } from './mail';
 
@@ -15,6 +15,7 @@ const sthlmHour = (t = Date.now()) => Number(new Date(t).toLocaleString('en-GB',
 const weekday = (t = Date.now()) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(new Date(t).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/Stockholm' }));
 
 export async function runJobs(origin: string, force = false) {
+  await ensureWebhook().catch(() => null);
   const last = Number((await getSetting('jobs_last')) || 0);
   if (!force && Date.now() - last < 3600e3) return { skipped: true };
   // Claim the run first so parallel requests don't double up.

@@ -63,7 +63,20 @@ export async function installWebhook(origin: string) {
   });
   await setSetting('stripe_webhook_id', ep.id);
   await setSetting('stripe_webhook_secret', ep.secret);
+  await setSetting('stripe_webhook_url', ep.url);
   return ep.id as string;
+}
+
+let webhookChecked = false;
+/** Moves an installed webhook to the service's current address (e.g. after the move to probe.nassau.se). */
+export async function ensureWebhook() {
+  if (webhookChecked || !stripeEnabled()) return 'ok';
+  webhookChecked = true;
+  if (!(await getSetting('stripe_webhook_id'))) return 'not installed';
+  const want = `${APP_HOME}/app/api/stripe/webhook`;
+  if ((await getSetting('stripe_webhook_url')) === want) return 'ok';
+  await installWebhook(APP_HOME);
+  return 'moved';
 }
 
 /** Verifies a Stripe-Signature header (HMAC-SHA256 over "timestamp.payload"), tolerating 5 minutes of clock skew. */
