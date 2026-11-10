@@ -863,3 +863,34 @@ html.theme-dark .z-site-ico .lt:has(+ .dk) { display: none; }
 .z-set-h { margin: 14px 0 0; font-family: var(--font-display); font-size: 18px; font-weight: 500; }
 .z-menu-ico { width: 22px; height: 22px; display: inline-grid; place-items: center; color: var(--_theme---text-muted); }
 .z-card.z-set-project { border-radius: 16px; }
+
+/* Sparkline end dot: an element of its own, so it stays round when the line stretches */
+.z-spark-wrap { position: relative; display: block; }
+.z-spark-dot { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: currentColor; }
+/* Sessions chart: bars or line, people and AI agents */
+.z-chart-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.z-chart-legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--_theme---text-muted); }
+.z-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.z-chart-legend b { color: var(--_theme---text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.z-chart-legend i { width: 9px; height: 9px; border-radius: 3px; background: var(--_theme---accent); }
+.z-chart-legend i.agents, .z-bar.agents { background: var(--z-heat-warm); }
+.z-chart-legend .dim { opacity: .55; }
+.z-chart-tools .z-seg a { padding: 4px 10px; font-size: 12.5px; }
+.z-chart-plot { height: 180px; position: relative; }
+.z-chart-bars { height: 100%; }
+.z-bar-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; }
+.z-bar-col .z-bar { flex: none; }
+.z-bar-col.now .z-bar:not(.agents) { background: var(--_theme---accent); }
+.z-bar-col:hover .z-bar { outline: 1px solid var(--_theme---border); }
+.z-bar.agents { border-radius: 4px; min-height: 3px; }
+.z-chart-line { position: absolute; inset: 0; display: none; }
+.z-chart-line svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.z-chart-line path { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.z-chart-line path.people { stroke: var(--_theme---accent); }
+.z-chart-line path.agents { stroke: var(--z-heat-warm); stroke-dasharray: 5 4; }
+.z-chart-line path.area { fill: color-mix(in srgb, var(--_theme---accent) 10%, transparent); stroke: none; }
+.z-chart-hit { position: absolute; inset: 0; display: flex; }
+.z-chart-hit span { flex: 1; }
+.z-chart-hit span:hover { background: color-mix(in srgb, var(--_theme---text) 6%, transparent); }
+.z-chart[data-mode='line'] .z-chart-bars { display: none; }
+.z-chart[data-mode='line'] .z-chart-line { display: block; }

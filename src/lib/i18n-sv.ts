@@ -271,6 +271,7 @@ export const SV: Record<string, string> = {
   'Where the first screen ends on desktop, shown as a dashed line on the page.': 'Där första skärmen slutar på dator, visas som en streckad linje på sidan.',
   'Where the first screen ends on phones, shown as a dashed line on the page.': 'Där första skärmen slutar på mobil, visas som en streckad linje på sidan.',
   'Site': 'Sajt', 'Project and people': 'Projekt och personer', 'Project settings and people': 'Projektinställningar och personer', 'Project settings': 'Projektinställningar', 'Site settings': 'Sajtinställningar', 'Leave or delete': 'Lämna eller radera', 'Invite as Pro': 'Bjud in som Pro', 'Invite as Basic': 'Bjud in som Basic', 'Invitation sent': 'Inbjudan skickad', 'Removed': 'Borttagen', 'Project handed over': 'Projektet överlämnat',
+  'Bars': 'Staplar', 'Line': 'Linje', 'Chart type': 'Diagramtyp',
   // Misc
   'Sign in': 'Logga in', 'Sign up': 'Registrera dig', 'Close': 'Stäng', 'Cancel': 'Avbryt', 'Back': 'Tillbaka', 'Delete': 'Radera', 'Yes': 'Ja', 'No': 'Nej', 'Loading…': 'Laddar…',
   'Free for your first site · Made in Stockholm': 'Gratis för din första sajt · Gjord i Stockholm',
@@ -363,6 +364,7 @@ export const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^last checked (.+)$/, (_, a) => `senast granskad ${a}`], [/^Checked (.+)$/, (_, a) => `Granskad ${a}`], [/^new site version$/, () => 'ny version av sajten'],
   [/^via (.+)$/, (_, a) => `via ${a}`], [/^AI agent · (.+)$/, (_, a) => `AI-agent · ${a}`], [/^Average fold at ([\d\s,.]+) px$/, (_, a) => `Genomsnittlig fold vid ${a} px`],
   [/^(.+) · Project$/, (_, a) => `${a} · Projekt`],
+  [/^(.+) · (\d+) people, (\d+) AI agents$/, (_, a, b, c) => `${a} · ${b} personer, ${c} AI-agenter`],
   [/^Last run: never\.$/, () => 'Senaste körning: aldrig.'],
   [/^Seats are counted, invoices made, alerts and weekly reports sent once an hour while there’s traffic\. Last run: (.+?)\. Email (isn’t connected \(add RESEND_API_KEY\)|is connected)\.$/, (_, w, e) =>
     `Platser räknas, fakturor skapas, larm och veckorapporter skickas en gång i timmen när det finns trafik. Senaste körning: ${w === 'never' ? 'aldrig' : w}. E-post ${e.startsWith('is connected') ? 'är kopplad' : 'är inte kopplad (lägg till RESEND_API_KEY)'}.`],

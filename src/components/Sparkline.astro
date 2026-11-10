@@ -9,6 +9,7 @@ const area = `${line} L${width} ${height} L0 ${height} Z`;
 const last = pts[pts.length - 1];
 const gid = `spark-${Math.random().toString(36).slice(2, 8)}`;
 ---
+<span class="z-spark-wrap" style={`height:${height}px`}>
 <svg class="z-spark" viewBox={`0 0 ${width} ${height}`} width="100%" height={height} preserveAspectRatio="none" role="img" aria-label={label}>
   <defs>
     <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
@@ -18,5 +19,6 @@ const gid = `spark-${Math.random().toString(36).slice(2, 8)}`;
   </defs>
   {values.length > 1 && <path d={area} fill={`url(#${gid})`} />}
   {values.length > 1 && <path d={line} fill="none" stroke="currentColor" stroke-width="1.75" vector-effect="non-scaling-stroke" stroke-linejoin="round" />}
-  {last && <circle cx={last[0]} cy={last[1]} r="2.5" fill="currentColor" />}
 </svg>
+{last && <i class="z-spark-dot" style={`left:${((last[0] / width) * 100).toFixed(2)}%;top:${last[1].toFixed(1)}px`}></i>}
+</span>

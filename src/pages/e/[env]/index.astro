@@ -3,6 +3,7 @@ import App from '../../../layouts/App.astro';
 import AppHeader from '../../../components/AppHeader.astro';
 import TitleRow from '../../../components/TitleRow.astro';
 import Kpi from '../../../components/Kpi.astro';
+import SessionsChart from '../../../components/SessionsChart.astro';
 import Bars from '../../../components/Bars.astro';
 import SessionRow from '../../../components/SessionRow.astro';
 import InstallSnippet from '../../../components/InstallSnippet.astro';
@@ -59,7 +60,7 @@ const refTotal = data ? data.referrers.reduce((a, d) => a + d.n, 0) : 0;
         <section class="z-grid z-row-2-1">
           <div class="z-card">
             <div class="z-card-head"><span class="z-card-title">Sessions</span><span class="z-card-hint">{fmt.int(data.now.sessions)} sessions · {fmt.int(data.now.pageviews)} page views</span></div>
-            <Bars counts={data.counts} from={r.from} bucket={data.bucket} label="Sessions" />
+            <SessionsChart people={data.counts} agents={data.agentCounts} from={r.from} bucket={data.bucket} />
           </div>
           <div class="z-card">
             <div class="z-card-head"><span class="z-card-title">Top pages</span><span class="z-card-hint">Views · scroll</span></div>

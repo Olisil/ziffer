@@ -1,0 +1,69 @@
+---
+// Sessions over time: bars or a line (the viewer's choice is remembered), with AI agent visits as their own series.
+interface Props { people: number[]; agents: number[]; from: number; bucket: number }
+const { people, agents, from, bucket } = Astro.props;
+const n = people.length;
+const hasAgents = agents.some((v) => v > 0);
+const max = Math.max(1, ...people.map((v, i) => v + (agents[i] || 0)));
+const lineMax = Math.max(1, ...people, ...agents);
+const hourly = bucket < 864e5;
+const fmt = (i: number) => {
+  const d = new Date(from + i * bucket);
+  return hourly
+    ? d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' })
+    : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Europe/Stockholm' });
+};
+const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+const W = 1000, H = 180;
+const path = (vals: number[]) => vals.map((v, i) => `${i ? 'L' : 'M'}${(n > 1 ? (i / (n - 1)) * W : W / 2).toFixed(1)} ${(H - 4 - (v / lineMax) * (H - 12)).toFixed(1)}`).join(' ');
+const tip = (i: number) => `${fmt(i)} · ${people[i]}${hasAgents ? ` people, ${agents[i] || 0} AI agents` : ''}`;
+---
+<div class="z-chart" data-sessions-chart data-mode="bars">
+  <div class="z-chart-tools">
+    <span class="z-chart-legend">
+      <span><i class="people"></i>People <b>{sum(people)}</b></span>
+      <span class:list={[{ dim: !hasAgents }]}><i class="agents"></i>AI agents <b>{sum(agents)}</b></span>
+    </span>
+    <span class="z-seg" role="group" aria-label="Chart type">
+      <a href="#" role="button" data-chart-mode="bars" aria-current="true">Bars</a>
+      <a href="#" role="button" data-chart-mode="line" aria-current="false">Line</a>
+    </span>
+  </div>
+  <div class="z-chart-plot" role="img" aria-label={`Sessions: ${sum(people)} in total`}>
+    <div class="z-bars z-chart-bars">
+      {people.map((v, i) => (
+        <div class:list={['z-bar-col', { now: i === n - 1 }]} title={tip(i)}>
+          {(agents[i] || 0) > 0 && <div class="z-bar agents" style={`height:${Math.max(1.5, ((agents[i] || 0) / max) * 100)}%`}></div>}
+          <div class="z-bar" style={`height:${Math.max(1.5, (v / max) * 100)}%`}></div>
+        </div>
+      ))}
+    </div>
+    <div class="z-chart-line">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+        <path d={`${path(people)} L${W} ${H} L0 ${H} Z`} class="area" />
+        <path d={path(people)} class="people" vector-effect="non-scaling-stroke" />
+        {hasAgents && <path d={path(agents)} class="agents" vector-effect="non-scaling-stroke" />}
+      </svg>
+      <div class="z-chart-hit">{people.map((_, i) => <span title={tip(i)}></span>)}</div>
+    </div>
+  </div>
+  <div class="z-bars-axis"><span>{fmt(0)}</span><span>{fmt(Math.floor(n / 2))}</span><span>{hourly ? 'Now' : 'Today'}</span></div>
+</div>
+<script is:inline>
+  (function () {
+    if (window.__probeChart) return; window.__probeChart = true;
+    var KEY = 'probe-chart';
+    function set(mode) {
+      document.querySelectorAll('[data-sessions-chart]').forEach(function (c) {
+        c.setAttribute('data-mode', mode);
+        c.querySelectorAll('[data-chart-mode]').forEach(function (b) { b.setAttribute('aria-current', String(b.getAttribute('data-chart-mode') === mode)); });
+      });
+    }
+    try { if (localStorage.getItem(KEY) === 'line') set('line'); } catch (e) {}
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-chart-mode]'); if (!b) return;
+      e.preventDefault(); var m = b.getAttribute('data-chart-mode'); set(m);
+      try { localStorage.setItem(KEY, m); } catch (err) {}
+    });
+  })();
+</script>

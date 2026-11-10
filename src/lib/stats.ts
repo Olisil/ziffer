@@ -23,6 +23,11 @@ export async function dashboard(env: string, from: number, to: number, prevFrom:
       WHERE env_id = ? AND started >= ? AND started < ? GROUP BY b ORDER BY b`, from, bucket, env, from, to);
   const buckets = Math.round((to - from) / bucket);
   const counts = Array.from({ length: buckets }, (_, i) => series.find((r) => r.b === i)?.n ?? 0);
+  // AI agents browsing for someone: counted per visit, shown next to people but never mixed in.
+  const agentSeries = await all<{ b: number; n: number }>(
+    `SELECT CAST((ts - ?) / ? AS INTEGER) AS b, COUNT(DISTINCT visit) AS n FROM agent_views
+      WHERE env_id = ? AND ts >= ? AND ts < ? GROUP BY b ORDER BY b`, from, bucket, env, from, to).catch(() => []);
+  const agentCounts = Array.from({ length: buckets }, (_, i) => agentSeries.find((r) => r.b === i)?.n ?? 0);
   const [pages, referrers, devices, recent] = await Promise.all([
     all<{ path: string; n: number; scroll: number }>(
       `SELECT path, COUNT(*) AS n, AVG(scroll) AS scroll FROM pageviews WHERE env_id = ? AND ts >= ? AND ts < ?
@@ -35,7 +40,7 @@ export async function dashboard(env: string, from: number, to: number, prevFrom:
         GROUP BY 1 ORDER BY n DESC`, env, from, to),
     recentSessions(env, from, to, 6),
   ]);
-  return { now, prev, counts, bucket, pages, referrers, devices, recent };
+  return { now, prev, counts, agentCounts, bucket, pages, referrers, devices, recent };
 }
 
 export type SessionRow = { id: string; started: number; duration: number; pageviews: number; rage: number; device: string | null; country: string | null; referrer: string | null; entry_path: string | null; exit_path: string | null; journey: string | null };
