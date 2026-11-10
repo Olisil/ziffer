@@ -5,7 +5,7 @@ import AppHeader from '../../../../components/AppHeader.astro';
 import ScoreRing from '../../../../components/ScoreRing.astro';
 import { loadEnvPage, fmt } from '../../../../lib/page';
 import { db, url } from '../../../../lib/server';
-import { latestAudits, queueAudit, type Check } from '../../../../lib/audit';
+import { excludedReason, latestAudits, queueAudit, type Check } from '../../../../lib/audit';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
@@ -23,7 +23,11 @@ if (Astro.request.method === 'POST') {
   return Astro.redirect(Astro.url.pathname);
 }
 
-const latest = await latestAudits(env.id);
+const all = await latestAudits(env.id);
+// Pages that answer 404 or are kept out of search are listed separately and left out of the averages and the fix list.
+const latest = all.filter((a) => !excludedReason(a));
+const notCounted = all.filter((a) => excludedReason(a));
+const excludedText = { missing: 'Page not found (404)', hidden: 'Kept out of search (noindex or robots.txt)' } as const;
 const pending = (await db().prepare("SELECT path, trigger FROM audits WHERE env_id = ? AND status IN ('pending', 'running') ORDER BY queued").bind(env.id).all<{ path: string; trigger: string }>()).results;
 const errors = (await db().prepare("SELECT path, error, ran_at FROM audits a1 WHERE env_id = ? AND status = 'error' AND ran_at > ? ORDER BY ran_at DESC LIMIT 5").bind(env.id, Date.now() - 864e5).all<{ path: string; error: string; ran_at: number }>()).results;
 // Previous audit per page, for "what changed since last time".
@@ -57,7 +61,7 @@ const top = [...issues.values()].sort((a, b) => b.weight * b.pages.length * (b.s
 const triggerText: Record<string, string> = { first: 'First check', content: 'Content changed', structure: 'Layout changed', template: 'Header/menu changed', version: 'New site version', manual: 'Checked on request' };
 const catName: Record<string, string> = { seo: 'SEO', aeo: 'AEO', tech: 'Technical' };
 const tone = (n: number | null) => (n === null ? '' : n >= 85 ? 'good' : n >= 60 ? 'ok' : 'bad');
-const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
+const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
 ---
 <App title={`${env.name} · Audits`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} readOnly={ctx.readOnlyReason} />
@@ -87,19 +91,22 @@ const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
     )}
     {errors.length > 0 && <p class="z-card" style="margin:0;color:var(--z-coral)">Couldn’t check {errors[0].path}: {errors[0].error}</p>}
 
-    {latest.length === 0 && pending.length === 0 ? (
+    {all.length === 0 && pending.length === 0 ? (
       <section class="z-empty">
         <h2 style="font-size:18px">No audits yet</h2>
         <p class="muted" style="margin:0;max-width:560px">The first audits run on their own as visits come in. You can also start them now.</p>
         {canEdit && <form method="post"><input type="hidden" name="action" value="all" /><button class="z-btn z-btn-primary" type="submit">Check {env.domain} now</button></form>}
       </section>
-    ) : latest.length > 0 && (
+    ) : all.length > 0 && (
       <>
         <section class="z-card z-audit-scores">
           <ScoreRing score={avg('seo')} label="SEO" delta={delta('seo')} />
           <ScoreRing score={avg('aeo')} label="AEO" delta={delta('aeo')} />
           <ScoreRing score={avg('tech')} label="Technical" delta={delta('tech')} />
-          <div class="z-audit-scores-note muted">Average of the latest check of {latest.length} {latest.length === 1 ? 'page' : 'pages'}. The small number is the change since each page’s previous check.</div>
+          <div class="z-audit-scores-note muted">
+            {latest.length ? `Average of the latest check of ${latest.length} ${latest.length === 1 ? 'page' : 'pages'}. The small number is the change since each page’s previous check.` : 'No page counts towards the scores yet.'}
+            {notCounted.length > 0 && <> {`${notCounted.length} ${notCounted.length === 1 ? 'page isn’t' : 'pages aren’t'} counted: missing pages and pages kept out of search.`}</>}
+          </div>
         </section>
 
         {top.length > 0 && (
@@ -118,7 +125,7 @@ const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
           </section>
         )}
 
-        <section class="z-card">
+        {latest.length > 0 && <section class="z-card">
           <div class="z-card-head"><span class="z-card-title">Pages</span><span class="z-card-hint">Latest check of each page</span></div>
           <div class="z-audit-table" role="table">
             <div class="z-audit-row head" role="row"><span>Page</span><span>SEO</span><span>AEO</span><span>Tech</span><span>Why it was checked</span><span></span></div>
@@ -139,7 +146,29 @@ const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
               );
             })}
           </div>
-        </section>
+        </section>}
+
+        {notCounted.length > 0 && (
+          <section class="z-card">
+            <div class="z-card-head"><span class="z-card-title">Not counted in the scores</span><span class="z-card-hint">Missing pages and pages kept out of search</span></div>
+            <p class="muted" style="margin:0 0 8px;font-size:12.5px">These addresses got visits but either don’t exist or are deliberately hidden from search engines, so they don’t say anything about how the site is found. If a page here should be found, remove its noindex or add it back.</p>
+            <div class="z-audit-table" role="table">
+              <div class="z-audit-row head" role="row"><span>Page</span><span>SEO</span><span>AEO</span><span>Tech</span><span>Why it isn’t counted</span><span></span></div>
+              {notCounted.map((a) => {
+                let title = '';
+                try { title = JSON.parse(a.results || '{}').title || ''; } catch {}
+                return (
+                  <a class="z-audit-row z-audit-excluded" role="row" href={url(`e/${env.id}/audits/page?path=${encodeURIComponent(a.path)}`)}>
+                    <span class="z-audit-page"><b>{a.path}</b><span class="muted">{title}</span></span>
+                    {(['seo', 'aeo', 'tech'] as const).map((k) => <span class="z-pill">{a[k] ?? '–'}</span>)}
+                    <span class="muted z-audit-why">{excludedText[excludedReason(a)!]}</span>
+                    <span class="z-sc-go" aria-hidden="true">›</span>
+                  </a>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </>
     )}
   </main>

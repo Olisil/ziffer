@@ -428,6 +428,23 @@ export async function runAudit(a: AuditRow) {
 
 /* ---------------- Reading ---------------- */
 
+export type Excluded = 'missing' | 'hidden';
+
+/**
+ * Why a page is left out of the site's averages, or null when it counts.
+ * `missing`: the address answers 404/410, so it is a stray visit (often a bot guessing /login, /wp-admin…), not a page.
+ * `hidden`: the site keeps it out of search on purpose (noindex, or Googlebot blocked in robots.txt).
+ * Both are still audited and listed, just not counted, so a page hidden by mistake stays visible.
+ */
+export function excludedReason(a: Pick<AuditRow, 'http_status' | 'results'>): Excluded | null {
+  if (a.http_status === 404 || a.http_status === 410) return 'missing';
+  try {
+    const checks = (JSON.parse(a.results || '{}').checks ?? []) as Check[];
+    if (checks.some((c) => c.id === 'seo.indexable' && c.status === 'fail')) return 'hidden';
+  } catch {}
+  return null;
+}
+
 export async function latestAudits(envId: string) {
   return (await db().prepare(
     `SELECT * FROM audits a1 WHERE env_id = ? AND status = 'done'
@@ -440,10 +457,16 @@ export async function auditSummary(envIds: string[]) {
   if (!envIds.length) return new Map<string, { seo: number; aeo: number; tech: number; pages: number }>();
   const ph = envIds.map(() => '?').join(',');
   const rows = (await db().prepare(
-    `SELECT env_id, ROUND(AVG(seo)) AS seo, ROUND(AVG(aeo)) AS aeo, ROUND(AVG(tech)) AS tech, COUNT(*) AS pages FROM audits a1
+    `SELECT env_id, seo, aeo, tech, http_status, results FROM audits a1
       WHERE env_id IN (${ph}) AND status = 'done'
-        AND ran_at = (SELECT MAX(ran_at) FROM audits a2 WHERE a2.env_id = a1.env_id AND a2.path = a1.path AND a2.status = 'done')
-      GROUP BY env_id`,
-  ).bind(...envIds).all<{ env_id: string; seo: number; aeo: number; tech: number; pages: number }>()).results;
-  return new Map(rows.map((r) => [r.env_id, r]));
+        AND ran_at = (SELECT MAX(ran_at) FROM audits a2 WHERE a2.env_id = a1.env_id AND a2.path = a1.path AND a2.status = 'done')`,
+  ).bind(...envIds).all<Pick<AuditRow, 'env_id' | 'seo' | 'aeo' | 'tech' | 'http_status' | 'results'>>()).results;
+  const sums = new Map<string, { seo: number; aeo: number; tech: number; pages: number }>();
+  for (const r of rows) {
+    if (excludedReason(r)) continue;
+    const s = sums.get(r.env_id) ?? { seo: 0, aeo: 0, tech: 0, pages: 0 };
+    s.seo += r.seo ?? 0; s.aeo += r.aeo ?? 0; s.tech += r.tech ?? 0; s.pages++;
+    sums.set(r.env_id, s);
+  }
+  return new Map([...sums].map(([k, s]) => [k, { seo: Math.round(s.seo / s.pages), aeo: Math.round(s.aeo / s.pages), tech: Math.round(s.tech / s.pages), pages: s.pages }]));
 }

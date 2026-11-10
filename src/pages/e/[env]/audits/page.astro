@@ -5,7 +5,7 @@ import ScoreRing from '../../../../components/ScoreRing.astro';
 import Sparkline from '../../../../components/Sparkline.astro';
 import { loadEnvPage, fmt } from '../../../../lib/page';
 import { db, url } from '../../../../lib/server';
-import { queueAudit, type AuditRow, type Category, type Check } from '../../../../lib/audit';
+import { excludedReason, queueAudit, type AuditRow, type Category, type Check } from '../../../../lib/audit';
 import { listVersions } from '../../../../lib/versions';
 
 const ctx = await loadEnvPage(Astro);
@@ -38,6 +38,7 @@ const lost = (c: Check) => (c.status === 'pass' ? 0 : c.status === 'warn' ? c.we
 const catWeight = (k: Category) => checks.filter((c) => c.cat === k).reduce((s, c) => s + c.weight, 0) || 1;
 const changed = checks.filter((c) => prevStatus.has(c.id) && prevStatus.get(c.id) !== c.status);
 const series = (k: 'seo' | 'aeo' | 'tech') => [...history].reverse().map((h) => h[k] ?? 0);
+const excluded = a ? excludedReason(a) : null;
 const statusWord = { pass: 'Passes', warn: 'Needs work', fail: 'Failing', info: 'Info' } as const;
 const triggerText: Record<string, string> = { first: 'first check', content: 'content changed', structure: 'layout changed', template: 'header/menu changed', version: 'new site version', manual: 'checked on request' };
 ---
@@ -72,6 +73,15 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
             <ScoreRing score={a.tech} label="Technical" delta={prev ? (a.tech ?? 0) - (prev.tech ?? 0) : null} href="#cat-tech" />
           </div>
         </section>
+
+        {excluded && (
+          <section class="z-card z-audit-note">
+            <b>{excluded === 'missing' ? 'Not counted in the site’s scores: this address answers “page not found”.' : 'Not counted in the site’s scores: this page is kept out of search.'}</b>
+            <span class="muted">{excluded === 'missing'
+              ? 'Someone (often a bot trying common addresses like /login) visited a page that doesn’t exist. If a real page used to live here, add a 301 redirect to where it moved; otherwise there is nothing to fix.'
+              : 'It has noindex, or robots.txt blocks Googlebot, so search and AI answers won’t use it. That is right for log-in, account and thank-you pages. If this page should be found, see “Allowed in search results” below.'}</span>
+          </section>
+        )}
 
         {history.length > 1 && (
           <section class="z-card">

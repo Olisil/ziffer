@@ -834,3 +834,7 @@ html.theme-dark .z-site-ico .lt:has(+ .dk) { display: none; }
   font-family: var(--font-display); font-stretch: 100%; font-weight: 500;
 }
 .z-h1 { letter-spacing: -0.015em; }
+
+/* Audits: pages left out of the site's scores (404s, noindex) */
+.z-audit-note { display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.z-audit-excluded .z-pill { color: var(--_theme---text-muted); }
