@@ -1,0 +1,27 @@
+---
+import DeviceIcon from './DeviceIcon.astro';
+import { fmt } from '../lib/page';
+import { countryName, flag } from '../lib/look';
+import type { TourVisit } from '../lib/tours';
+interface Props { v: TourVisit; href: string; names: Map<string, string> }
+const { v, href, names } = Astro.props;
+const route = v.order.map((id) => names.get(id) || id);
+---
+<a class="z-sc z-tour-visit" href={href} title="Replay this visit on the floor plan">
+  <span class="z-sc-who">
+    <span class="z-sc-dev"><DeviceIcon device={v.device === 'touch' ? 'mobile' : 'desktop'} /></span>
+    <span class="z-sc-who-text">
+      <span class="z-sc-time">{fmt.date(v.started)} {fmt.time(v.started)}</span>
+      <span class="z-sc-tech">{v.device === 'touch' ? 'Mobile or tablet' : 'Desktop'}</span>
+      {v.country && <span class="z-sc-geo" data-no-i18n>{flag(v.country)} {countryName(v.country)}</span>}
+    </span>
+  </span>
+  <span class="z-sc-main">
+    <span class="z-sc-path" data-no-i18n>{route.length ? route.map((n, i) => <>{i > 0 && <span class="muted"> → </span>}{i === 0 ? <b>{n}</b> : n}</>) : <span class="muted">—</span>}</span>
+  </span>
+  <span class="z-sc-stats" style="grid-template-columns:repeat(2,64px)">
+    <span><b>{fmt.dur(v.dur)}</b><small>Time</small></span>
+    <span><b>{v.rooms}</b><small>Rooms</small></span>
+  </span>
+  <span class="z-sc-go" aria-hidden="true">›</span>
+</a>

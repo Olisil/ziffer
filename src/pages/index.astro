@@ -8,6 +8,7 @@ import Sparkline from '../components/Sparkline.astro';
 import { fmt, isDevUser } from '../lib/page';
 import { listEnvironments, listProjects, ownerId, rangeOf, url } from '../lib/server';
 import { overview } from '../lib/stats';
+import { tourOverview } from '../lib/tours';
 import { auditSummary } from '../lib/audit';
 import { db } from '../lib/server';
 
@@ -21,6 +22,7 @@ if (!envs.length) return Astro.redirect(url(`p/${projects[0].id}/environments/ne
 const r = rangeOf(Astro.url);
 const stats = await overview(envs.filter((e) => e.kind === 'web').map((e) => e.id), r.from, r.to, r.prevFrom, r.days);
 const q = `?range=${r.key}`;
+const tourStats = await tourOverview(envs.filter((e) => e.kind === 'tour').map((e) => e.id), r.from, r.to, r.prevFrom, r.days <= 1 ? 3600e3 : 864e5).catch(() => new Map());
 const webIds = envs.filter((e) => e.kind === 'web').map((e) => e.id);
 const audits = await auditSummary(webIds).catch(() => new Map());
 const vcount = new Map(webIds.length ? (await db().prepare(`SELECT env_id, COUNT(*) AS n FROM site_versions WHERE merged_into IS NULL AND env_id IN (${webIds.map(() => '?').join(',')}) GROUP BY env_id`).bind(...webIds).all<{ env_id: string; n: number }>()).results.map((x) => [x.env_id, x.n]) : []);
@@ -75,11 +77,28 @@ const initial = (s: string) => s.trim().charAt(0).toUpperCase() || '?';
                     ? <span class="z-live" title="Visitors active in the last 5 minutes"><i class="z-live-dot"></i>{s.live} now</span>
                     : <span class="z-chip">{e.kind === 'web' ? 'Web' : 'Tour'}</span>}
                 </header>
-                {e.kind === 'tour' ? (
+                {e.kind === 'tour' ? ((t) => !t || (t.visits === 0 && t.prev === 0) ? (
                   <div class="z-ov-empty">
-                    <b>Intus tour statistics</b>
-                    <span class="muted">Visits, time per room and walking paths appear here once the tour data is connected.</span>
+                    <b>No tour visits yet</b>
+                    <span class="muted">Connect the tour viewer in Settings, or bring in earlier visits from Intus statistics.</span>
+                    <a class="z-btn z-btn-secondary z-ov-raise" href={url(`e/${e.id}/settings`)}>Connect the tour viewer</a>
                   </div>
+                ) : (
+                  <>
+                    <div class="z-ov-hero">
+                      <div>
+                        <span class="z-kpi-label">Visits</span>
+                        <b class="z-ov-big">{fmt.int(t.visits)}</b>
+                        <span class={`z-delta ${delta(t.visits, t.prev).cls}`}>{delta(t.visits, t.prev).text}</span>
+                      </div>
+                      <div class="z-ov-spark"><Sparkline values={t.counts} label={`Visits per ${r.days <= 1 ? 'hour' : 'day'}`} /></div>
+                    </div>
+                    <dl class="z-ov-kpis">
+                      <div><dt>Avg. time</dt><dd>{fmt.dur(t.avg)}</dd></div>
+                      <div><dt>Tours</dt><dd>{fmt.int(t.tours)}</dd></div>
+                    </dl>
+                  </>
+                ))(tourStats.get(e.id)
                 ) : empty ? (
                   <div class="z-ov-empty">
                     <b>Waiting for the first visit</b>
@@ -122,6 +141,8 @@ const initial = (s: string) => s.trim().charAt(0).toUpperCase() || '?';
                   <a href={url(`e/${e.id}${q}`)}>Dashboard</a>
                   {e.kind === 'web' && <a href={url(`e/${e.id}/sessions${q}`)}>Sessions</a>}
                   {e.kind === 'web' && <a href={url(`e/${e.id}/heatmaps${q}`)}>Heatmaps</a>}
+                  {e.kind === 'tour' && <a href={url(`e/${e.id}/visits${q}`)}>Visits</a>}
+                  {e.kind === 'tour' && <a href={url(`e/${e.id}/plan${q}`)}>Floor plan</a>}
                   <a href={url(`e/${e.id}/settings`)}>Settings</a>
                 </footer>
               </article>

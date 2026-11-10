@@ -51,7 +51,7 @@ export function translateResponse(res: Response): Response {
   let skip = 0, buf = '';
   const rw = new HTMLRewriter()
     .on('html', { element(el) { el.setAttribute('lang', 'sv'); } })
-    .on(SKIP, { element(el) { skip++; el.onEndTag?.(() => { skip--; }); } })
+    .on(SKIP, { element(el) { try { el.onEndTag(() => { skip--; }); skip++; } catch { /* an element without an end tag (input, img) has no text to skip */ } } })
     .on('*', {
       element(el) {
         for (const a of ATTRS) { const v = el.getAttribute(a); if (v) { const t = sv(v); if (t !== v) el.setAttribute(a, t); } }

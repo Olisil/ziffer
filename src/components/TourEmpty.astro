@@ -1,0 +1,14 @@
+---
+// Shown on a tour environment before its first visit has arrived.
+import { url } from '../lib/server';
+interface Props { envId: string; canEdit: boolean }
+const { envId, canEdit } = Astro.props;
+---
+<section class="z-empty">
+  <span class="z-chip">Virtual tour environment</span>
+  <h2 style="font-size:20px">No tour visits yet</h2>
+  <p class="muted" style="margin:0;max-width:640px">
+    Visits show up here as soon as the tour viewer sends them to Probe. Settings has the line to add to the viewer, and a way to bring in earlier visits from Intus statistics.
+  </p>
+  {canEdit && <a class="z-btn z-btn-primary" href={url(`e/${envId}/settings`)}>Connect the tour viewer</a>}
+</section>

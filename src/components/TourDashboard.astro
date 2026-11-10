@@ -1,0 +1,70 @@
+---
+// Dashboard of a virtual tour environment: visits, time, rooms and the latest visitors.
+import Kpi from './Kpi.astro';
+import Bars from './Bars.astro';
+import TourPicker from './TourPicker.astro';
+import TourEmpty from './TourEmpty.astro';
+import TourVisitRow from './TourVisitRow.astro';
+import { fmt } from '../lib/page';
+import { url, rangeQuery, type Range } from '../lib/server';
+import { pickTour, roomNames, tourStats, tourTotals } from '../lib/tours';
+interface Props { env: { id: string; tours_base?: string | null }; r: Range; canEdit: boolean }
+const { env, r, canEdit } = Astro.props;
+const pick = await pickTour(env, Astro.url);
+const bucket = r.days <= 1 ? 3600e3 : 864e5;
+const [s, prev] = pick.id
+  ? await Promise.all([tourStats(env.id, pick.id, r.from, r.to, { bucket }), tourTotals(env.id, pick.id, r.prevFrom, r.from)])
+  : [null, null];
+const names = roomNames(pick.info);
+const q = pick.id ? `?${rangeQuery(r)}&t=${pick.id}` : '';
+// Rooms in the tour's own order, then any the tour file doesn't describe.
+const ids = s ? [...new Set([...names.keys(), ...Object.keys(s.rooms)])].filter((id) => s.rooms[id]) : [];
+const rooms = s ? ids.map((id) => ({ id, name: names.get(id) || id, share: s.visits ? (s.rooms[id].visits / s.visits) * 100 : 0, avg: s.rooms[id].visits ? s.rooms[id].secs / s.rooms[id].visits : 0 })).sort((a, b) => b.share - a.share) : [];
+---
+{!pick.id && <TourEmpty envId={env.id} canEdit={canEdit} />}
+{pick.id && s && prev && (
+  <>
+    <div class="z-filterbar">
+      <div>
+        <b class="z-tour-name" data-no-i18n>{pick.info?.title || pick.id}</b>
+        {pick.info?.subtitle && <span class="muted" style="margin-left:8px;font-size:13px" data-no-i18n>{pick.info.subtitle}</span>}
+      </div>
+      <span class="z-spacer"></span>
+      <TourPicker tours={pick.tours} current={pick.id} />
+    </div>
+    <section class="z-grid z-kpis" aria-label="Key figures">
+      <Kpi label="Visits" value={fmt.int(s.visits)} delta={fmt.delta(s.visits, prev.visits)} hint="Visits of five seconds or more" />
+      <Kpi label="Median time" value={fmt.dur(s.median)} delta={{ text: `Average ${fmt.dur(s.avg)}`, down: false }} hint="Half of the visits were longer than this" />
+      <Kpi label="Rooms per visit" value={s.roomsPerVisit.toFixed(1)} delta={{ text: names.size ? `Of ${names.size} rooms` : 'Rooms entered, on average', down: false }} hint="Rooms a visitor walked into, on average" />
+      <Kpi label="On mobile" value={fmt.pct(s.touchShare * 100)} delta={{ text: s.touch ? `${fmt.pct(s.gyroShare * 100)} of them looked around by moving the phone` : 'Phones and tablets', down: false }} hint="Share of visits on a touch screen" />
+    </section>
+
+    <section class="z-grid z-row-2-1">
+      <div class="z-card">
+        <div class="z-card-head"><span class="z-card-title">Visits</span><span class="z-card-hint">{fmt.int(s.visits)} in this period{s.capped ? ' (the newest 1,500 are counted)' : ''}</span></div>
+        <Bars counts={s.counts} from={r.from} bucket={bucket} label="Visits" />
+      </div>
+      <div class="z-card">
+        <div class="z-card-head"><span class="z-card-title">Rooms</span><span class="z-card-hint">Share of visitors · average time</span></div>
+        <div class="z-list">
+          {rooms.length === 0 && <p class="muted" style="margin:0;font-size:13px">No rooms recorded yet.</p>}
+          {rooms.map((room) => (
+            <div class="z-list-row">
+              <span class="grow" data-no-i18n>{room.name}</span><span class="num">{fmt.pct(room.share)}</span>
+              <span class="z-meter" title={`${fmt.pct(room.share)} of visitors`}><i style={`width:${Math.round(room.share)}%`}></i></span>
+              <span class="num muted" style="min-width:58px">{fmt.dur(room.avg)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section class="z-card">
+      <div class="z-card-head"><span class="z-card-title">Latest visits</span><a class="z-link" style="margin-left:auto" href={url(`e/${env.id}/visits${q}`)}>All visits</a></div>
+      <div class="z-sc-list">
+        {s.list.length === 0 && <p class="z-empty-small">No visits in this period.</p>}
+        {s.list.slice(0, 6).map((v) => <TourVisitRow v={v} names={names} href={url(`e/${env.id}/plan${q}&visit=${v.sid}`)} />)}
+      </div>
+    </section>
+  </>
+)}

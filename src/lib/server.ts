@@ -21,7 +21,7 @@ export type Project = {
   payer_id?: string | null; stripe_customer?: string | null; stripe_subscription?: string | null; billing_status?: string | null;
   access?: 'pro' | 'basic'; role?: 'owner' | 'member';
 };
-export type Environment = { id: string; project_id: string; kind: 'web' | 'tour'; name: string; domain: string | null; site_key: string; created: number; verified_at?: number | null };
+export type Environment = { id: string; project_id: string; kind: 'web' | 'tour'; name: string; domain: string | null; site_key: string; created: number; verified_at?: number | null; tours_base?: string | null };
 export const MAX_ENVIRONMENTS = 4;
 
 /** The signed-in Clerk user id. (In local development: ZIFFER_DEV_USER, or the zdev cookie to act as someone else.) */

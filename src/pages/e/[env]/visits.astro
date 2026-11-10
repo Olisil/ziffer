@@ -1,0 +1,105 @@
+---
+import App from '../../../layouts/App.astro';
+import AppHeader from '../../../components/AppHeader.astro';
+import TitleRow from '../../../components/TitleRow.astro';
+import TourPicker from '../../../components/TourPicker.astro';
+import TourEmpty from '../../../components/TourEmpty.astro';
+import TourVisitRow from '../../../components/TourVisitRow.astro';
+import { loadEnvPage, fmt } from '../../../lib/page';
+import { db, rangeOf, rangeQuery, url } from '../../../lib/server';
+import { dayLabel } from '../../../lib/look';
+import { SID_RE, pickTour, roomNames, tourStats } from '../../../lib/tours';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser, canEdit } = ctx;
+if (env.kind !== 'tour') return Astro.redirect(url(`e/${env.id}/sessions`));
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const sid = String(form.get('sid') || '');
+  if (form.get('action') === 'remove' && SID_RE.test(sid)) await db().prepare('DELETE FROM tour_visits WHERE env_id = ? AND sid = ?').bind(env.id, sid).run();
+  return Astro.redirect(Astro.url.pathname + Astro.url.search);
+}
+const r = rangeOf(Astro.url);
+const pick = await pickTour(env, Astro.url);
+const s = pick.id ? await tourStats(env.id, pick.id, r.from, r.to) : null;
+const names = roomNames(pick.info);
+const sp = Astro.url.searchParams;
+const sort = sp.get('sort') === 'longest' ? 'longest' : 'newest';
+const device = sp.get('device') === 'touch' ? 'touch' : sp.get('device') === 'desktop' ? 'desktop' : '';
+let all = s ? s.list.filter((v) => !device || (v.device === 'touch' ? 'touch' : 'desktop') === device) : [];
+if (sort === 'longest') all = [...all].sort((a, b) => b.dur - a.dur);
+const PER = 40, n = Math.max(0, Number(sp.get('n') || 0) | 0);
+const list = all.slice(n * PER, (n + 1) * PER), more = all.length > (n + 1) * PER;
+const link = (patch: Record<string, string | undefined>) => {
+  const u = new URL(Astro.url);
+  for (const [k, v] of Object.entries(patch)) (v ? u.searchParams.set(k, v) : u.searchParams.delete(k));
+  if (!('n' in patch)) u.searchParams.delete('n');
+  return u.pathname + u.search;
+};
+const groups: { day: string; items: typeof list }[] = [];
+for (const v of list) {
+  const day = sort === 'newest' ? dayLabel(v.started) : '';
+  const g = groups[groups.length - 1];
+  if (g && g.day === day) g.items.push(v); else groups.push({ day, items: [v] });
+}
+const q = pick.id ? `?${rangeQuery(r)}&t=${pick.id}` : '';
+---
+<App title={`${env.name} · Visits`}>
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} readOnly={ctx.readOnlyReason} />
+  <main class="z-main">
+    <TitleRow eyebrow={`${project.name} · ${env.name} · Virtual tour`} site={env} title="Visits" range={r.key} />
+    {!pick.id && <TourEmpty envId={env.id} canEdit={canEdit} />}
+    {pick.id && s && (
+      <>
+        <div class="z-filterbar">
+          <span class="z-seg" role="group" aria-label="Device">
+            <a href={link({ device: undefined })} aria-current={String(!device)}>All<i class="z-seg-n">{s.visits}</i></a>
+            <a href={link({ device: 'desktop' })} aria-current={String(device === 'desktop')}>Desktop<i class="z-seg-n">{s.visits - s.touch}</i></a>
+            <a href={link({ device: 'touch' })} aria-current={String(device === 'touch')}>Mobile<i class="z-seg-n">{s.touch}</i></a>
+          </span>
+          <span class="z-seg" role="group" aria-label="Sort">
+            <a href={link({ sort: undefined })} aria-current={String(sort === 'newest')}>Newest</a>
+            <a href={link({ sort: 'longest' })} aria-current={String(sort === 'longest')}>Longest</a>
+          </span>
+          <span class="z-spacer"></span>
+          <TourPicker tours={pick.tours} current={pick.id} />
+        </div>
+        <section class="z-card">
+          <div class="z-card-head">
+            <span class="z-card-title" data-no-i18n>{pick.info?.title || pick.id}</span>
+            <span class="z-card-hint">{fmt.int(all.length)} visits · median {fmt.dur(s.median)}</span>
+          </div>
+          {list.length === 0 && <p class="z-empty-small">No visits in this period.</p>}
+          {groups.map((g) => (
+            <>
+              {g.day && <div class="z-sday-head">{g.day}<span>{g.items.length}</span></div>}
+              <div class="z-sc-list">
+                {g.items.map((v) => (
+                  <div class="z-tour-visit-wrap">
+                    <TourVisitRow v={v} names={names} href={url(`e/${env.id}/plan${q}&visit=${v.sid}`)} />
+                    {canEdit && (
+                      <form method="post" class="z-tour-remove" data-confirm="Remove this visit from the statistics?" data-confirm-sv="Ta bort det här besöket från statistiken?">
+                        <input type="hidden" name="action" value="remove" /><input type="hidden" name="sid" value={v.sid} />
+                        <button class="z-clear" type="submit" title="Remove this visit (for example your own test)" aria-label="Remove this visit">×</button>
+                      </form>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          ))}
+          {(n > 0 || more) && (
+            <nav class="z-pager">
+              {n > 0 ? <a class="z-btn z-btn-secondary" href={link({ n: n > 1 ? String(n - 1) : undefined })}>Newer</a> : <span></span>}
+              {more && <a class="z-btn z-btn-secondary" href={link({ n: String(n + 1) })}>Older</a>}
+            </nav>
+          )}
+        </section>
+      </>
+    )}
+  </main>
+</App>
+<script is:inline>
+  document.addEventListener('submit', function (e) { var f = e.target.closest && e.target.closest('[data-confirm]'); if (f && !confirm(f.getAttribute(document.documentElement.lang === 'sv' ? 'data-confirm-sv' : 'data-confirm'))) e.preventDefault(); });
+</script>

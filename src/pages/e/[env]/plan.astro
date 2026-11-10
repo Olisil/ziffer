@@ -1,0 +1,79 @@
+---
+import App from '../../../layouts/App.astro';
+import AppHeader from '../../../components/AppHeader.astro';
+import TitleRow from '../../../components/TitleRow.astro';
+import TourPicker from '../../../components/TourPicker.astro';
+import TourEmpty from '../../../components/TourEmpty.astro';
+import { loadEnvPage, fmt } from '../../../lib/page';
+import { rangeOf, rangeQuery, url } from '../../../lib/server';
+import { SID_RE, pickTour, roomNames, tourStats } from '../../../lib/tours';
+
+const ctx = await loadEnvPage(Astro);
+if (ctx instanceof Response) return ctx;
+const { env, project, projects, environments, devUser, canEdit } = ctx;
+if (env.kind !== 'tour') return Astro.redirect(url(`e/${env.id}/heatmaps`));
+const r = rangeOf(Astro.url);
+const pick = await pickTour(env, Astro.url);
+const s = pick.id ? await tourStats(env.id, pick.id, r.from, r.to, { heat: true }) : null;
+const visitId = Astro.url.searchParams.get('visit');
+const replay = s && visitId && SID_RE.test(visitId) ? s.list.find((v) => v.sid === visitId) ?? null : null;
+const names = roomNames(pick.info);
+const map = pick.info?.map ?? null;
+const ROUTES = 150; // routes drawn on the plan; the heat counts every visit
+const visits = s ? s.list.filter((v) => v.path.length > 1).slice(0, ROUTES).map((v) => ({ sid: v.sid, dur: v.dur, path: v.path })) : [];
+if (replay && !visits.some((v) => v.sid === replay.sid)) visits.push({ sid: replay.sid, dur: replay.dur, path: replay.path });
+const props = s && {
+  angle: map?.angle ?? 0, levels: map?.levels ?? [], rooms: map?.rooms ?? [],
+  walk: s.walk, look: s.look, visits,
+  imageBase: map && pick.info?.base ? `${pick.info.base}/${pick.id}` : null,
+  replay: replay?.sid ?? null,
+  labels: { en: { level: 'Floor', playing: 'Replaying the visit', of: 'of', noRoute: 'This visit has no recorded route.' }, sv: { level: 'Plan', playing: 'Spelar upp besöket', of: 'av', noRoute: 'Det här besöket har ingen sparad väg.' } },
+};
+const json = props ? JSON.stringify(props).replace(/</g, '\\u003c') : '';
+const q = pick.id ? `?${rangeQuery(r)}&t=${pick.id}` : '';
+const hasHeat = !!s && (s.walk.length > 0 || s.look.length > 0);
+---
+<App title={`${env.name} · Floor plan`}>
+  <AppHeader projects={projects} project={project} environments={environments} env={env} tab="heatmaps" devUser={devUser} readOnly={ctx.readOnlyReason} />
+  <main class="z-main">
+    <TitleRow eyebrow={`${project.name} · ${env.name} · Virtual tour`} site={env} title="Floor plan" range={r.key} />
+    {!pick.id && <TourEmpty envId={env.id} canEdit={canEdit} />}
+    {pick.id && s && (
+      <div class="z-tplan" data-tour-plan>
+        <div class="z-filterbar">
+          <span class="z-tplan-layers">
+            <label class="z-tplan-layer walk"><input type="checkbox" data-layer="walk" checked /><i></i>Walked</label>
+            <label class="z-tplan-layer look"><input type="checkbox" data-layer="look" checked /><i></i>Looked at</label>
+            <label class="z-tplan-layer path"><input type="checkbox" data-layer="path" /><i></i>Routes</label>
+          </span>
+          <span class="z-seg z-tplan-levels" role="group" aria-label="Floor" hidden></span>
+          <span class="z-spacer"></span>
+          <TourPicker tours={pick.tours} current={pick.id} />
+        </div>
+        <section class="z-card z-tplan-card">
+          <div class="z-card-head">
+            <span class="z-card-title" data-no-i18n>{pick.info?.title || pick.id}</span>
+            <span class="z-card-hint">{fmt.int(s.visits)} visits{s.capped ? ' (the newest 1,500)' : ''}{visits.length >= ROUTES ? ` · routes of the latest ${ROUTES}` : ''}</span>
+          </div>
+          <div class="z-tplan-replay" hidden>
+            <span class="z-live-dot"></span><span class="z-tplan-replay-text" data-no-i18n></span>
+            <span class="z-spacer"></span>
+            <a href="#" role="button" class="z-link z-tplan-replay-again">Play again</a>
+            <a class="z-link" href={url(`e/${env.id}/plan${q}`)}>Show all visits</a>
+          </div>
+          <div class="z-tplan-stage">
+            <canvas class="z-tplan-bg"></canvas><canvas class="z-tplan-heat"></canvas><canvas class="z-tplan-top"></canvas>
+            {!hasHeat && <p class="z-tplan-note">No movement recorded in this period.</p>}
+          </div>
+          {!map && <p class="z-heat-note" style="margin:0">{env.tours_base
+            ? 'This tour has no floor plan yet, so the heat is shown without walls. Add rooms in Intus Studio and they appear here.'
+            : 'Add the tour files address in Settings to see walls, room names and the plan drawing behind the heat.'}</p>}
+          <script type="application/json" set:html={json}></script>
+        </section>
+      </div>
+    )}
+  </main>
+</App>
+<script>
+  import '../../../scripts/tour-plan';
+</script>

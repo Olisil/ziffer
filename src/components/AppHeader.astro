@@ -22,7 +22,7 @@ const q = sp.get('range') || sp.get('from') ? `?${rangeQuery(rangeOf(Astro.url))
 const tabs = env
   ? (env.kind === 'web'
       ? [['dashboard', 'Dashboard', ''], ['sessions', 'Sessions', '/sessions'], ['heatmaps', 'Heatmaps', '/heatmaps'], ['audits', 'Audits', '/audits'], ['settings', 'Settings', '/settings']]
-      : [['dashboard', 'Dashboard', ''], ['settings', 'Settings', '/settings']])
+      : [['dashboard', 'Dashboard', ''], ['sessions', 'Visits', '/visits'], ['heatmaps', 'Floor plan', '/plan'], ['settings', 'Settings', '/settings']])
   : [];
 // On phones the Versions button sits with the other views.
 const mobileTabs = env?.kind === 'web' ? [...tabs.slice(0, 3), ['versions', 'Versions', '/versions'], ...tabs.slice(3)] : tabs;

@@ -1,0 +1,16 @@
+---
+// Which tour the page shows, when an environment has more than one.
+interface Props { tours: { id: string; title: string; visits: number }[]; current: string | null }
+const { tours, current } = Astro.props;
+const link = (id: string) => { const u = new URL(Astro.url); u.searchParams.set('t', id); ['visit', 'n'].forEach((k) => u.searchParams.delete(k)); return u.pathname + u.search; };
+---
+{tours.length > 1 && (
+  <label class="z-fsel z-tour-pick"><span>Tour</span>
+    <select class="z-select" data-tour-pick aria-label="Tour" data-no-i18n>
+      {tours.map((t) => <option value={link(t.id)} selected={t.id === current}>{t.title}</option>)}
+    </select>
+  </label>
+)}
+<script is:inline>
+  document.addEventListener('change', function (e) { var s = e.target.closest && e.target.closest('[data-tour-pick]'); if (s) location.href = s.value; });
+</script>

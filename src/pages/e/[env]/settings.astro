@@ -6,9 +6,11 @@ import AppHeader from '../../../components/AppHeader.astro';
 import InstallSnippet from '../../../components/InstallSnippet.astro';
 import { loadEnvPage } from '../../../lib/page';
 import { cleanDomain, db, url } from '../../../lib/server';
+import { appOrigin } from '../../../lib/notify';
 import { bucket } from '../../../lib/snapshots';
 import { CLAIM_DAYS, conflictMessage, domainConflict, type Conflict } from '../../../lib/claims';
 import { fmt } from '../../../lib/page';
+import { cleanBase } from '../../../lib/tours';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
@@ -24,11 +26,15 @@ if (Astro.request.method === 'POST') {
     const name = String(form.get('name') || '').trim().slice(0, 80);
     const domainRaw = String(form.get('domain') || '').trim();
     const domain = domainRaw ? cleanDomain(domainRaw) : null;
+    const baseRaw = String(form.get('tours_base') || '').trim();
+    const toursBase = env.kind === 'tour' && baseRaw ? cleanBase(baseRaw) : null;
     if (!name) error = 'The name can’t be empty.';
+    else if (env.kind === 'tour' && baseRaw && !toursBase) error = 'The tour files address must start with https://.';
     else if (env.kind === 'web' && !domain) error = 'Enter a valid domain, for example nassau.se.';
     else if (domain && domain !== env.domain && (conflict = await domainConflict(domain, ctx.owner, env.id))) error = conflictMessage(domain, conflict);
     else {
       // A new domain has to be confirmed again by a visit through the snippet.
+      if (env.kind === 'tour') await db().prepare('UPDATE environments SET tours_base = ? WHERE id = ?').bind(toursBase, env.id).run();
       await db().prepare('UPDATE environments SET name = ?, domain = ?, verified_at = CASE WHEN domain IS ? THEN verified_at ELSE NULL END, created = CASE WHEN domain IS ? THEN created ELSE ? END WHERE id = ?')
         .bind(name, domain, domain, domain, Date.now(), env.id).run();
       return Astro.redirect(url(`e/${env.id}/settings?saved=1`));
@@ -43,6 +49,8 @@ if (Astro.request.method === 'POST') {
         db().prepare('DELETE FROM clicks WHERE env_id = ?').bind(env.id),
         db().prepare('DELETE FROM pageviews WHERE env_id = ?').bind(env.id),
         db().prepare('DELETE FROM sessions WHERE env_id = ?').bind(env.id),
+        db().prepare('DELETE FROM agent_views WHERE env_id = ?').bind(env.id),
+        db().prepare('DELETE FROM tour_visits WHERE env_id = ?').bind(env.id),
         db().prepare('DELETE FROM environments WHERE id = ?').bind(env.id),
       ]);
       return Astro.redirect(url(`p/${project.id}`));
@@ -50,6 +58,9 @@ if (Astro.request.method === 'POST') {
   }
 }
 if (Astro.url.searchParams.get('saved')) notice = 'saved';
+const tourLast = env.kind === 'tour' ? await db().prepare('SELECT MAX(updated) AS last, COUNT(*) AS n FROM tour_visits WHERE env_id = ?').bind(env.id).first<{ last: number | null; n: number }>() : null;
+const tourEndpoint = new URL(url(`api/tour/${env.site_key}`), appOrigin(Astro.request)).href;
+const tourMeta = `<meta name="intus-stats" content="${tourEndpoint}">`;
 ---
 <App title={`${env.name} · Settings`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="settings" devUser={devUser} readOnly={ctx.readOnlyReason} />
@@ -80,37 +91,115 @@ if (Astro.url.searchParams.get('saved')) notice = 'saved';
       </section>
     )}
 
+    {env.kind === 'tour' && (
+      <section class="z-card">
+        <div class="z-card-head"><span class="z-card-title">Connect the tour viewer</span><span class="z-card-hint">Site key {env.site_key}</span></div>
+        {tourLast?.last
+          ? <p class="z-claim ok"><span class="z-st pass"></span>Receiving visits. The latest arrived {fmt.date(tourLast.last)} {fmt.time(tourLast.last)}; {fmt.int(tourLast.n)} are stored.</p>
+          : <p class="z-claim"><span class="z-st warn"></span>No visits have arrived yet.</p>}
+        <p class="muted" style="margin:0;font-size:13px">The Intus viewer sends each visit to the address in this line. Put it in the head of the viewer page; several addresses can be listed with a space between them.</p>
+        <pre class="z-code" data-no-i18n><code>{tourMeta}</code></pre>
+        <p class="muted" style="margin:0;font-size:13px">The key isn’t a secret: it only lets the viewer add visits, never read them. Set a domain below and only the viewer on that site can send.</p>
+      </section>
+    )}
+
+    {env.kind === 'tour' && canEdit && (
+      <section class="z-card" data-tour-import data-endpoint={url(`e/${env.id}/tour-import`)}>
+        <div class="z-card-head"><span class="z-card-title">Bring in earlier visits</span><span class="z-card-hint">From Intus statistics</span></div>
+        <p class="muted" style="margin:0;font-size:13px">Sign in with your Intus statistics account and Probe copies the visits of every tour you can see there. The password is used for this one sign-in and is not stored. Visits already here are left as they are, so it’s safe to run again.</p>
+        <form class="z-form" data-tour-import-form style="margin-top:6px">
+          <label class="z-field">Intus statistics address<input class="z-input" name="base" type="url" required placeholder="https://…workers.dev" data-no-i18n /></label>
+          <label class="z-field">Email<input class="z-input" name="email" type="email" required autocomplete="username" /></label>
+          <label class="z-field">Password<input class="z-input" name="password" type="password" required autocomplete="off" /></label>
+          <div><button class="z-btn z-btn-primary" type="submit">Bring in visits</button></div>
+        </form>
+        <p class="z-claim" data-tour-import-status hidden role="status"></p>
+      </section>
+    )}
+
     {!canEdit && <p class="z-card z-readonly" style="margin:0">{readOnlyReason}</p>}
     {canEdit && <section class="z-card">
       <div class="z-card-head"><span class="z-card-title">Environment</span><span class="z-card-hint">{env.kind === 'web' ? 'Web' : 'Virtual tour'}</span></div>
       <form method="post" class="z-form">
         <input type="hidden" name="action" value="update" />
         <label class="z-field">Name<input class="z-input" name="name" required maxlength="80" value={env.name} /></label>
-        <label class="z-field">Domain <small>{env.kind === 'web' ? 'Only this domain (with www and subdomains) can send data.' : 'Optional for tours.'}</small>
+        <label class="z-field">Domain <small>{env.kind === 'web' ? 'Only this domain (with www and subdomains) can send data.' : 'Optional. With a domain, only the viewer on that site can send visits.'}</small>
           <input class="z-input" name="domain" maxlength="200" value={env.domain || ''} />
         </label>
+        {env.kind === 'tour' && <label class="z-field">Tour files address <small>Where the tours’ tour.json files are published. Gives titles, room names and floor plans.</small>
+          <input class="z-input" name="tours_base" type="url" maxlength="300" placeholder="https://…r2.dev" value={env.tours_base || ''} data-no-i18n />
+        </label>}
         <div><button class="z-btn z-btn-primary" type="submit">Save</button></div>
       </form>
     </section>}
 
     <section class="z-card">
       <div class="z-card-head"><span class="z-card-title">Privacy</span></div>
+      {env.kind === 'tour' ? (
+      <ul class="muted" style="margin:0;padding-left:18px;font-size:13px;line-height:1.7">
+        <li>No cookies and nothing stored in the visitor’s browser. Each visit gets a random number that is gone when the tab closes.</li>
+        <li>A visit holds the time spent, the rooms entered, where the visitor walked and looked in the tour, the kind of device and the country. No IP address, name or contact details.</li>
+        <li>Visits can’t be linked to each other or to a person, and any single visit can be removed under Visits.</li>
+        <li>Data stays in this Webflow Cloud app’s storage; moving analytics to EU-only storage is planned.</li>
+      </ul>
+      ) : (
       <ul class="muted" style="margin:0;padding-left:18px;font-size:13px;line-height:1.7">
         <li>No cookies or local identifiers that survive the tab. Visitors are counted with a hash that changes every day.</li>
         <li>No form input, typed text or query strings are recorded — only paths, click positions and short element selectors.</li>
         <li>For heatmaps, a visitor’s browser occasionally sends a copy of the page layout (at most every few days per page). Scripts and form values are removed first; add <code>data-ziffer-mask</code> to any element that should be blanked out.</li>
         <li>Data stays in this Webflow Cloud app’s storage; moving analytics to EU-only storage is planned.</li>
       </ul>
+      )}
     </section>
 
     {canEdit && <section class="z-card">
       <div class="z-card-head"><span class="z-card-title">Delete environment</span></div>
       <form method="post" class="z-form">
         <input type="hidden" name="action" value="delete" />
-        <p class="muted" style="margin:0;font-size:13px">Removes {env.name} and all of its sessions, page views, clicks and page snapshots. This can’t be undone.</p>
-        <label class="z-field"><span>Type <b>{env.name}</b> to confirm</span><input class="z-input" name="confirm" autocomplete="off" /></label>
+        <p class="muted" style="margin:0;font-size:13px">Removes {env.name} and all of its {env.kind === 'tour' ? 'tour visits' : 'sessions, page views, clicks and page snapshots'}. This can’t be undone.</p>
+        <label class="z-field"><span>Type <b data-no-i18n>{env.name}</b> to confirm</span><input class="z-input" name="confirm" autocomplete="off" /></label>
         <div><button class="z-btn z-btn-danger" type="submit">Delete environment</button></div>
       </form>
     </section>}
   </main>
 </App>
+<script>
+  // History import: sign in to Intus statistics through Probe, then copy the visits page by page.
+  const card = document.querySelector<HTMLElement>('[data-tour-import]');
+  const form = card?.querySelector<HTMLFormElement>('[data-tour-import-form]');
+  const status = card?.querySelector<HTMLElement>('[data-tour-import-status]');
+  const sv = document.documentElement.lang === 'sv';
+  const T = sv
+    ? { signing: 'Loggar in …', copying: (t: string, n: number) => `Kopierar ${t} … ${n} besök hittills`, done: (n: number, seen: number, tours: number) => `Klart. ${n} nya besök hämtades (${seen} lästa i ${tours} visningar).`, none: 'Kontot ser inga visningar.', fail: 'Det gick inte: ' }
+    : { signing: 'Signing in …', copying: (t: string, n: number) => `Copying ${t} … ${n} visits so far`, done: (n: number, seen: number, tours: number) => `Done. ${n} new visits were brought in (${seen} read across ${tours} tours).`, none: 'That account can’t see any tours.', fail: 'That didn’t work: ' };
+  if (card && form && status) {
+    const call = async (body: unknown) => {
+      const res = await fetch(card.dataset.endpoint!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const j: any = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      return j;
+    };
+    const say = (text: string, cls = '') => { status.hidden = false; status.className = `z-claim ${cls}`; status.textContent = text; };
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = new FormData(form), base = String(f.get('base'));
+      const btn = form.querySelector('button')!; btn.disabled = true;
+      try {
+        say(T.signing);
+        const { token, tours } = await call({ step: 'login', base, email: f.get('email'), password: f.get('password') });
+        (form.elements.namedItem('password') as HTMLInputElement).value = '';
+        if (!tours.length) { say(T.none); return; }
+        let added = 0, seen = 0;
+        for (const tour of tours) {
+          for (let offset = 0, more = true; more; ) {
+            say(T.copying(tour, seen));
+            const r = await call({ step: 'page', base, token, tour, offset });
+            added += r.added; seen += r.read; offset += r.read; more = r.more && r.read > 0;
+          }
+        }
+        say(T.done(added, seen, tours.length), 'ok');
+      } catch (err: any) { say(T.fail + (err?.message || err)); }
+      finally { btn.disabled = false; }
+    });
+  }
+</script>

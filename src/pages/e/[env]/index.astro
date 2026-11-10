@@ -6,6 +6,7 @@ import Kpi from '../../../components/Kpi.astro';
 import SessionsChart from '../../../components/SessionsChart.astro';
 import Bars from '../../../components/Bars.astro';
 import SessionRow from '../../../components/SessionRow.astro';
+import TourDashboard from '../../../components/TourDashboard.astro';
 import InstallSnippet from '../../../components/InstallSnippet.astro';
 import { loadEnvPage, fmt } from '../../../lib/page';
 import { rangeOf, rangeQuery, url } from '../../../lib/server';
@@ -25,21 +26,12 @@ const refTotal = data ? data.referrers.reduce((a, d) => a + d.n, 0) : 0;
 <App title={`${env.name} · Dashboard`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="dashboard" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main">
-    <TitleRow eyebrow={`${project.name} · ${env.name} · ${env.kind === 'web' ? 'Web' : 'Virtual tour'}`} site={env} title="Dashboard" range={r.key} showRange={env.kind === 'web'}>
+    <TitleRow eyebrow={`${project.name} · ${env.name} · ${env.kind === 'web' ? 'Web' : 'Virtual tour'}`} site={env} title="Dashboard" range={r.key} showRange>
       {env.kind === 'web' && ctx.canEdit && <a class="z-btn z-btn-secondary" href={url(`p/${project.id}/report?e=${env.id}|${r.key === 'custom' ? '30d' : r.key === '24h' ? '7d' : r.key}`)}>Export report</a>}
       {env.kind === 'web' && <a class="z-btn z-btn-secondary" href={url(`e/${env.id}/settings`)}>Install snippet</a>}
     </TitleRow>
 
-    {env.kind === 'tour' && (
-      <section class="z-empty">
-        <span class="z-chip">Virtual tour environment</span>
-        <h2 style="font-size:20px">Connect the Intus tour statistics</h2>
-        <p class="muted" style="margin:0;max-width:640px">
-          This environment will show tour visits, time per room, walking paths and floor-plan heatmaps. The data already lives in the
-          <b>intus-stats</b> service; the next step links it here so you sign in once and see tours next to websites.
-        </p>
-      </section>
-    )}
+    {env.kind === 'tour' && <TourDashboard env={env} r={r} canEdit={ctx.canEdit} />}
 
     {data && empty && (
       <section class="z-card">
