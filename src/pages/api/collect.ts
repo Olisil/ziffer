@@ -103,9 +103,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
       const path = pathOf(e.p); if (!path) continue;
       const rage = e.rg ? 1 : 0, dead = e.dc && !rage ? 1 : 0;
       stmts.push(
-        DB.prepare(`INSERT INTO clicks (session_id, env_id, path, ts, xr, y, vw, dw, dh, sel, rage, dead)
-                    SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?1 AND env_id = ?2)`)
-          .bind(sid, env.id, path, clampTs(e.ts), num(e.xr, 0, 1), num(e.y, 0, 200000), num(e.vw, 0, 10000), num(e.dw, 0, 20000), num(e.dh, 0, 200000), str(e.s, 200), rage, dead),
+        DB.prepare(`INSERT INTO clicks (session_id, env_id, path, ts, xr, y, vw, dw, dh, sel, rage, dead, ei, ex, ey)
+                    SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?1 AND env_id = ?2)`)
+          .bind(sid, env.id, path, clampTs(e.ts), num(e.xr, 0, 1), num(e.y, 0, 200000), num(e.vw, 0, 10000), num(e.dw, 0, 20000), num(e.dh, 0, 200000), str(e.s, 200), rage, dead,
+            Number.isInteger(e.ei) && e.ei >= 0 ? Math.min(e.ei, 400) : null, typeof e.ex === 'number' ? num(e.ex, 0, 1) : null, typeof e.ey === 'number' ? num(e.ey, 0, 1) : null),
       );
       if (rage) stmts.push(DB.prepare('UPDATE sessions SET rage = rage + 1 WHERE id = ? AND env_id = ?').bind(sid, env.id));
       if (dead) stmts.push(DB.prepare('UPDATE sessions SET dead = dead + 1 WHERE id = ? AND env_id = ?').bind(sid, env.id));

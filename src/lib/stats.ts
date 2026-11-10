@@ -73,8 +73,8 @@ export async function heatmapPages(env: string, from: number, to: number) {
 /** Clicks plus a scroll-reach curve for one page and device class. */
 export async function heatmapData(env: string, path: string, device: 'desktop' | 'mobile', from: number, to: number) {
   const vwCond = device === 'mobile' ? 'vw < 768' : 'vw >= 768';
-  const clicks = await all<{ xr: number; y: number; rage: number; dh: number }>(
-    `SELECT xr, y, rage, dh FROM clicks WHERE env_id = ? AND path = ? AND ts >= ? AND ts < ? AND ${vwCond} ORDER BY ts DESC LIMIT 20000`,
+  const clicks = await all<{ xr: number; y: number; rage: number; dh: number; sel: string | null; ei: number | null; ex: number | null; ey: number | null }>(
+    `SELECT xr, y, rage, dh, sel, ei, ex, ey FROM clicks WHERE env_id = ? AND path = ? AND ts >= ? AND ts < ? AND ${vwCond} ORDER BY ts DESC LIMIT 20000`,
     env, path, from, to);
   const geo = await one<{ dw: number; dh: number; vh: number; n: number }>(
     `SELECT CAST(AVG(dw) AS INTEGER) AS dw, CAST(AVG(dh) AS INTEGER) AS dh, CAST(AVG(vh) AS INTEGER) AS vh, COUNT(*) AS n
@@ -224,8 +224,8 @@ export async function sessionStory(env: string, sid: string) {
   const [pages, clicks, prev, next] = await Promise.all([
     all<{ id: string; path: string; title: string | null; ts: number; duration: number; scroll: number; vw: number; vh: number; dw: number; dh: number }>(
       'SELECT id, path, title, ts, duration, scroll, vw, vh, dw, dh FROM pageviews WHERE session_id = ? ORDER BY ts', sid),
-    all<{ path: string; ts: number; xr: number; y: number; dh: number; sel: string | null; rage: number; dead: number }>(
-      'SELECT path, ts, xr, y, dh, sel, rage, dead FROM clicks WHERE session_id = ? ORDER BY ts LIMIT 500', sid),
+    all<{ path: string; ts: number; xr: number; y: number; dh: number; sel: string | null; rage: number; dead: number; ei: number | null; ex: number | null; ey: number | null }>(
+      'SELECT path, ts, xr, y, dh, sel, rage, dead, ei, ex, ey FROM clicks WHERE session_id = ? ORDER BY ts LIMIT 500', sid),
     db().prepare('SELECT id FROM sessions WHERE env_id = ? AND (started > ? OR (started = ? AND id > ?)) ORDER BY started ASC, id ASC LIMIT 1').bind(env, s.started, s.started, s.id).first<{ id: string }>(),
     db().prepare('SELECT id FROM sessions WHERE env_id = ? AND (started < ? OR (started = ? AND id < ?)) ORDER BY started DESC, id DESC LIMIT 1').bind(env, s.started, s.started, s.id).first<{ id: string }>(),
   ]);

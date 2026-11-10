@@ -6,6 +6,7 @@ import { loadEnvPage, fmt } from '../../../lib/page';
 import { db, rangeOf, url } from '../../../lib/server';
 import { heatmapData, heatmapPages } from '../../../lib/stats';
 import { getSnapshot } from '../../../lib/snapshots';
+import { anchorsOf } from '../../../lib/anchors';
 import SnapshotView from '../../../components/SnapshotView.astro';
 
 const ctx = await loadEnvPage(Astro);
@@ -42,7 +43,7 @@ const link = (patch: Record<string, string>) => {
 const snapshotUrl = snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(path)}&device=${device}&sv=${encodeURIComponent(snap.version_id)}&v=${snap.ts}`) : null;
 const overlay = mode === 'scroll'
   ? { mode: 'scroll' as const, reach: data.reach, fold }
-  : { mode: 'heat' as const, fold, clicks: data.clicks.map((c) => [Math.round(c.xr * width), Math.round(c.dh ? (c.y * height) / c.dh : c.y), c.rage] as [number, number, number]) };
+  : { mode: 'heat' as const, fold, ...anchorsOf(data.clicks), clicks: data.clicks.map((c) => [Math.round(c.xr * width), Math.round(c.dh ? (c.y * height) / c.dh : c.y), c.rage] as [number, number, number]) };
 const foldShare = Math.min(100, Math.round((fold / Math.max(1, height)) * 100));
 const rageCount = data.clicks.filter((c) => c.rage).length;
 ---

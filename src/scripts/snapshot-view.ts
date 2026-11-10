@@ -6,9 +6,11 @@
 // without scripts (CSP + sandbox without allow-scripts). The frame keeps same-origin access only so the
 // viewer can scroll it to the interesting spot.
 
-type Heat = { mode: 'heat'; clicks: [number, number, number][]; fold: number };
+type Anchor = [number, number, number, number] | null; // selector index, element index (-1 unknown), ex, ey (-1 unknown)
+type Anchored = { sels?: string[]; anchors?: Anchor[] };
+type Heat = { mode: 'heat'; clicks: [number, number, number][]; fold: number } & Anchored;
 type Scroll = { mode: 'scroll'; reach: number[]; fold?: number };
-type PathO = { mode: 'path'; clicks: [number, number, number, number, number][]; seen: number; fold: number }; // x, y, rage, dead, number
+type PathO = { mode: 'path'; clicks: [number, number, number, number, number][]; seen: number; fold: number } & Anchored; // x, y, rage, dead, number
 export type SnapProps = {
   snapshot: string | null; // URL of the stored snapshot text
   W: number; H: number; // document size the overlay is drawn in
@@ -113,6 +115,50 @@ function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number
   ctx.fillStyle = '#fff'; ctx.fillText(text, x, y);
 }
 
+// The tracker's short selector ("div.card>span.price") as real CSS.
+function cssOf(sel: string) {
+  return sel.split('>').map((part) => {
+    const [rest, id] = part.split('#'), cl = rest.split('.');
+    let out = cl[0];
+    for (let i = 1; i < cl.length; i++) if (cl[i]) out += '.' + CSS.escape(cl[i]);
+    return id ? `${out}#${CSS.escape(id)}` : out;
+  }).join('>');
+}
+
+/**
+ * Moves clicks onto the element they hit, as it sits in this page picture. A click is recorded at one
+ * window size and the picture taken at another, so plain x/y land in the wrong place when the layout differs.
+ * Returns how many clicks moved.
+ */
+function anchorClicks(doc: Document, o: Heat | PathO, W: number, H: number) {
+  if (!o.sels || !o.anchors) return 0;
+  const win = doc.defaultView!, lists = new Map<number, Element[]>();
+  const find = (i: number) => {
+    let l = lists.get(i);
+    if (!l) { try { l = Array.from(doc.querySelectorAll(cssOf(o.sels![i]))).slice(0, 400); } catch { l = []; } lists.set(i, l); }
+    return l;
+  };
+  let moved = 0;
+  o.clicks.forEach((c, k) => {
+    const a = o.anchors![k]; if (!a) return;
+    const [si, ei, ex, ey] = a, els = find(si);
+    // Newer clicks know exactly which element; older ones only when the selector matches a single element.
+    const el = ei >= 0 ? els[ei] : els.length === 1 ? els[0] : undefined;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return;
+    const left = r.left + win.scrollX, top = r.top + win.scrollY;
+    let x: number, y: number;
+    if (ex >= 0 && ey >= 0) { x = left + ex * r.width; y = top + ey * r.height; }
+    else if (c[0] >= left && c[0] <= left + r.width && c[1] >= top && c[1] <= top + r.height) return; // already on it
+    else { x = left + r.width / 2; y = top + Math.min(r.height / 2, 400); }
+    x = Math.max(0, Math.min(W, Math.round(x))); y = Math.max(0, Math.min(H, Math.round(y)));
+    if (Math.abs(x - c[0]) > 2 || Math.abs(y - c[1]) > 2) { c[0] = x; c[1] = y; moved++; }
+  });
+  if (moved && o.mode === 'path') o.seen = Math.max(o.seen, ...o.clicks.map((c) => c[1] + 60));
+  return moved;
+}
+
 function sanitize(html: string, overlayPng: string, W: number, H: number) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
   doc.querySelectorAll('script, iframe, object, embed, frame, frameset, meta[http-equiv], link[rel=import], link[rel=preload], link[rel=prefetch], link[rel=modulepreload], form').forEach((n) => {
@@ -187,7 +233,23 @@ function mount(root: HTMLElement) {
     .then((html) => {
       frame.srcdoc = sanitize(html, cv.toDataURL('image/png'), W, H);
       frame.addEventListener('load', () => {
-        try { if (firstY > p.viewH * 0.6) frame.contentWindow!.scrollTo(0, Math.max(0, firstY - p.viewH / 3)); } catch {}
+        const o = p.overlay;
+        // Put each click on the element it hit in this picture, then redraw. Again shortly after, once images have settled the layout.
+        const place = (scroll: boolean) => {
+          try {
+            const doc = frame.contentDocument!;
+            if (o.mode !== 'scroll' && anchorClicks(doc, o, W, H)) {
+              ctx.clearRect(0, 0, W, H);
+              if (o.mode === 'heat') drawHeat(ctx, W, H, o); else drawPath(ctx, W, H, o);
+              const img = doc.getElementById('zf-overlay') as HTMLImageElement | null;
+              if (img) img.src = cv.toDataURL('image/png');
+            }
+            const y = o.mode === 'path' && o.clicks.length ? o.clicks[0][1] : 0;
+            if (scroll && y > p.viewH * 0.6) frame.contentWindow!.scrollTo(0, Math.max(0, y - p.viewH / 3));
+          } catch {}
+        };
+        place(true);
+        setTimeout(() => place(false), 1500);
       }, { once: true });
       stage.replaceChildren(frame);
     })

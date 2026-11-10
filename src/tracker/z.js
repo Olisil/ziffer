@@ -174,6 +174,23 @@
     }
     return parts.join('>').slice(0, 200);
   }
+  // The same selector as real CSS, to find which matching element was clicked and where inside it.
+  function cssOf(s) {
+    return s.split('>').map(function (part) {
+      var id = part.split('#'), cl = id[0].split('.'), out = cl[0];
+      for (var i = 1; i < cl.length; i++) if (cl[i]) out += '.' + CSS.escape(cl[i]);
+      return id[1] ? out + '#' + CSS.escape(id[1]) : out;
+    }).join('>');
+  }
+  function anchor(t, s, e) {
+    var a = { ei: -1 };
+    try {
+      var r = t.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) { a.ex = Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * 1e3) / 1e3; a.ey = Math.round(Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) * 1e3) / 1e3; }
+      for (var l = d.querySelectorAll(cssOf(s)), i = 0; i < l.length && i < 400; i++) if (l[i] === t) { a.ei = i; break; }
+    } catch (err) {}
+    return a;
+  }
   // A "dead click" lands on something that doesn't look or act clickable (no link, control or pointer cursor).
   var ACTIVE = 'a,button,input,select,textarea,label,summary,details,video,audio,[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[onclick],[contenteditable],[tabindex]:not([tabindex="-1"])';
   function isDead(t) {
@@ -190,7 +207,8 @@
     recent = recent.filter(function (c) { return now - c.t < 800 && Math.abs(c.x - x) < 30 && Math.abs(c.y - y) < 30; });
     recent.push({ t: now, x: x, y: y });
     var rage = recent.length >= 3 ? 1 : 0; if (rage) recent = [];
-    q.push({ t: 'c', id: pv.id, p: pv.path, xr: Math.round((x / Math.max(1, g.dw)) * 1e4) / 1e4, y: Math.round(y), vw: g.vw, dw: g.dw, dh: g.dh, s: sel(e.target), rg: rage, dc: rage ? 0 : isDead(e.target), ts: now });
+    var sl = sel(e.target), an = anchor(e.target, sl, e);
+    q.push({ t: 'c', id: pv.id, p: pv.path, xr: Math.round((x / Math.max(1, g.dw)) * 1e4) / 1e4, y: Math.round(y), vw: g.vw, dw: g.dw, dh: g.dh, s: sl, ei: an.ei, ex: an.ex, ey: an.ey, rg: rage, dc: rage ? 0 : isDead(e.target), ts: now });
     if (q.length > 40) flush();
   }
   function flush() {

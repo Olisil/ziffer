@@ -8,6 +8,7 @@ import { loadEnvPage, fmt } from '../../../../lib/page';
 import { url } from '../../../../lib/server';
 import { sessionStory } from '../../../../lib/stats';
 import { getSnapshot } from '../../../../lib/snapshots';
+import { anchorsOf } from '../../../../lib/anchors';
 import { listVersions } from '../../../../lib/versions';
 import { countryName, flag, signalsOf } from '../../../../lib/look';
 
@@ -53,6 +54,7 @@ const chapters = views.map((v, i) => {
       fold: snap?.vh || v.vh || 0,
       seen,
       clicks: pts,
+      ...anchorsOf(clicks),
     },
     snapshotUrl: snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(v.path)}&device=${bucket(v.vw)}&sv=${encodeURIComponent(snap.version_id)}&v=${snap.ts}`) : null,
   };
