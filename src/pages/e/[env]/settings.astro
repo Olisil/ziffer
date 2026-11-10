@@ -1,5 +1,6 @@
 ---
 import SiteIcon from '../../../components/SiteIcon.astro';
+import SettingsNav from '../../../components/SettingsNav.astro';
 import App from '../../../layouts/App.astro';
 import AppHeader from '../../../components/AppHeader.astro';
 import InstallSnippet from '../../../components/InstallSnippet.astro';
@@ -62,6 +63,7 @@ if (Astro.url.searchParams.get('saved')) notice = 'saved';
         </div>
       </div>
     </div>
+    <SettingsNav project={project} env={env} current="site" />
     {notice === 'welcome' && env.kind === 'web' && (
       <p class="z-card" style="margin:0"><b>{env.name} is ready.</b> <span class="muted">Add the snippet below to the site and publish — the dashboard fills in as visitors arrive.</span></p>
     )}

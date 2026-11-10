@@ -90,7 +90,7 @@ export async function accept(user: User, token: string, req: Request) {
     const origin = appOrigin(req), name = await projectName(inv.project_id);
     await notify((await projectRecipients(inv.project_id)).filter((x) => x !== user.id), {
       kind: 'members', projectId: inv.project_id, title: `${user.name || user.email} joined ${name}`,
-      lines: [`${esc(user.name || user.email || '')} accepted the invitation and has <b>${inv.access === 'pro' ? 'Pro' : 'Basic'}</b> access.`], link: '/app/settings?tab=projects',
+      lines: [`${esc(user.name || user.email || '')} accepted the invitation and has <b>${inv.access === 'pro' ? 'Pro' : 'Basic'}</b> access.`], link: `/app/p/${inv.project_id}/settings`,
     }, origin);
     if (billable({ access: inv.access ?? 'basic', plan: user.plan })) await tellSeats(inv.project_id, `${esc(user.name || user.email || '')} joined as a Pro member.`, origin);
   }

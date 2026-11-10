@@ -1,0 +1,10 @@
+---
+// Switches between one site's settings and the settings of the project it belongs to.
+import { url } from '../lib/server';
+interface Props { project: { id: string; name: string }; env?: { id: string; name: string } | null; current: 'site' | 'project' }
+const { project, env, current } = Astro.props;
+---
+<nav class="z-seg z-set-switch" aria-label="Settings">
+  {env && <a href={url(`e/${env.id}/settings`)} aria-current={String(current === 'site')}>Site<span class="muted" data-no-i18n> · {env.name}</span></a>}
+  <a href={url(`p/${project.id}/settings${env ? `?from=${env.id}` : ''}`)} aria-current={String(current === 'project')}>Project and people<span class="muted" data-no-i18n> · {project.name}</span></a>
+</nav>

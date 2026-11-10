@@ -24,7 +24,7 @@ if (env) {
       kind: 'members', projectId: env.project_id,
       title: `${user.name || user.email} asks for access to ${env.domain}`,
       lines: [`<b>${esc(user.name || '')}</b> (${esc(user.email || '')}) tried to add <b>${esc(env.domain || '')}</b> to Probe and is asking to join your project instead.`, ...(message ? [`“${esc(message)}”`] : []), 'You can invite them as Pro or Basic, or decline, in Settings → Projects.'],
-      link: url('settings?tab=projects'), button: 'Review the request',
+      link: url(`p/${env.project_id}/settings`), button: 'Review the request',
     }, appOrigin(Astro.request));
   }
   done = true;

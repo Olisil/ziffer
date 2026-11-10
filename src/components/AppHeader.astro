@@ -57,6 +57,7 @@ if (projects.length) {
             <a href={url(`p/${p.id}`)} aria-current={p.id === project.id ? 'true' : undefined}><SiteIcon env={siteOf.get(p.id)} name={p.name} size={22} />{p.name}</a>
           ))}
           <div class="z-menu-sep"></div>
+          <a href={url(`p/${project.id}/settings${env ? `?from=${env.id}` : ''}`)}><span class="z-menu-ico"><Icon name="settings" size={16} /></span>Project settings and people</a>
           <a href={url('new')}>+ New project</a>
         </div>
       </details>

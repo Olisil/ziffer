@@ -8,7 +8,7 @@ import AppHeader from '../components/AppHeader.astro';
 import { db, listEnvironments, listProjects, MAX_ENVIRONMENTS, ownerId, url, type Project } from '../lib/server';
 import { BILLING_GRACE_DAYS, fmt, isDevUser } from '../lib/page';
 import { billable, DEFAULT_NOTIFY, me, membersOf, PLAN_LABEL, prefsOf, type Access, type Member } from '../lib/users';
-import { actorFor, answerRequest, can, deleteProject, invite, leave, remove, setAccess, transfer } from '../lib/members';
+import { actorFor, can } from '../lib/members';
 import { checkoutForProject, money, portalForProject, seatPrice, stripeEnabled, stripeTestMode } from '../lib/stripe';
 import { mailEnabled } from '../lib/mail';
 import { appOrigin } from '../lib/notify';
@@ -16,9 +16,14 @@ import { appOrigin } from '../lib/notify';
 const owner = ownerId(Astro);
 if (!owner) return Astro.redirect(url('sign-in'));
 let user = (await me(Astro))!;
-const TABS = [['account', 'Account'], ['projects', 'Projects'], ['notifications', 'Notifications'], ['plan', 'Plan & billing'], ['security', 'Security']] as const;
+const TABS = [['account', 'Account'], ['notifications', 'Notifications'], ['plan', 'Plan & billing'], ['security', 'Security']] as const;
 type Tab = (typeof TABS)[number][0];
 const tab: Tab = (TABS.find(([k]) => k === Astro.url.searchParams.get('tab'))?.[0] ?? 'account') as Tab;
+// Project settings moved to each project's own page; old links land there.
+if (Astro.url.searchParams.get('tab') === 'projects') {
+  const first = (await listProjects(owner))[0];
+  return Astro.redirect(first ? url(`p/${first.id}/settings`) : url('settings'));
+}
 let flash = Astro.url.searchParams.get('ok') || '';
 let error = '';
 const back = (t: Tab, extra = '') => Astro.redirect(url(`settings?tab=${t}${extra}`));
@@ -37,29 +42,6 @@ if (Astro.request.method === 'POST') {
     if (pid) {
       const a = await actorFor(user, pid);
       if (!a.role) throw new Error('You’re not a member of that project.');
-      if (action === 'invite') { await invite(a, String(f.get('email') || ''), (f.get('access') === 'basic' ? 'basic' : 'pro') as Access, Astro.request); return back('projects', `&ok=${encodeURIComponent('Invitation sent')}#p-${pid}`); }
-      if (action === 'access') { await setAccess(a, String(f.get('user')), (f.get('access') === 'basic' ? 'basic' : 'pro') as Access, Astro.request); return back('projects', `#p-${pid}`); }
-      if (action === 'remove') { await remove(a, String(f.get('user')), Astro.request); return back('projects', `&ok=${encodeURIComponent('Removed')}#p-${pid}`); }
-      if (action === 'leave') { await leave(a, Astro.request); return back('projects', `&ok=${encodeURIComponent('You left the project')}`); }
-      if (action === 'transfer') { await transfer(a, String(f.get('user')), Astro.request); return back('projects', `&ok=${encodeURIComponent('Project handed over')}#p-${pid}`); }
-      if (action === 'revoke') {
-        if (!can.invite(a)) throw new Error('Only Pro members can manage invitations.');
-        await db().prepare('UPDATE invitations SET revoked = 1 WHERE token = ? AND project_id = ?').bind(String(f.get('token')), pid).run();
-        return back('projects', `#p-${pid}`);
-      }
-      if (action === 'request') { await answerRequest(a, String(f.get('request')), String(f.get('answer')) as any, Astro.request); return back('projects', `#p-${pid}`); }
-      if (action === 'rename') {
-        if (a.access !== 'pro') throw new Error('Basic members can’t rename projects.');
-        const name = String(f.get('name') || '').trim().slice(0, 80);
-        if (name) await db().prepare('UPDATE projects SET name = ? WHERE id = ?').bind(name, pid).run();
-        return back('projects', `#p-${pid}`);
-      }
-      if (action === 'delete') {
-        const p = await db().prepare('SELECT name FROM projects WHERE id = ?').bind(pid).first<{ name: string }>();
-        if (String(f.get('confirm') || '').trim() !== p?.name) throw new Error(`Type the project name “${p?.name}” to delete it.`);
-        await deleteProject(a);
-        return back('projects', `&ok=${encodeURIComponent('Project deleted')}`);
-      }
       if (action === 'checkout' || action === 'portal') {
         if (!can.billing(a)) throw new Error('Only the project owner handles billing.');
         const p = await db().prepare('SELECT * FROM projects WHERE id = ?').bind(pid).first<Project>();
@@ -162,10 +144,9 @@ const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (use
                 {projects.length === 0 && <p class="muted">None yet.</p>}
                 <ul class="z-set-projects">
                   {data.map(({ p, a, envs }) => (
-                    <li><SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={22} /><span><b>{p.name}</b><span class="muted">{a.role === 'owner' ? 'Project owner' : 'Member'} · {a.access === 'pro' ? 'Pro' : 'Basic'} · {envs.length} of {MAX_ENVIRONMENTS} environments</span></span></li>
+                    <li><SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={22} /><span><b>{p.name}</b><span class="muted">{a.role === 'owner' ? 'Project owner' : 'Member'} · {a.access === 'pro' ? 'Pro' : 'Basic'} · {envs.length} of {MAX_ENVIRONMENTS} environments</span></span><a class="z-link" style="margin-left:auto" href={url(`p/${p.id}/settings`)}>Project settings</a></li>
                   ))}
                 </ul>
-                <a href={url('settings?tab=projects')}>Manage projects and people</a>
               </div>
               <hr />
               <div class="z-set-row"><h3>Theme</h3>
@@ -183,109 +164,6 @@ const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (use
                 </form>
               </div>
             </div>
-          </div>
-        )}
-
-        {tab === 'projects' && (
-          <div class="z-set-projects-tab">
-            <p class="muted z-set-intro">The project owner handles billing, can remove anyone, hand the project over and delete it. Pro members edit everything and can invite people; they can remove Basic members. Basic members read only. Anyone can leave a project.</p>
-            {data.length === 0 && <p class="muted">You’re not in any projects yet.</p>}
-            {data.map(({ p, members, envs, invites, requests, a, billableSeats }) => (
-              <article class="z-set-project" id={`p-${p.id}`}>
-                <header>
-                  <SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={28} />
-                  {a.access === 'pro' ? (
-                    <form method="post" class="z-inline-rename"><input type="hidden" name="action" value="rename" /><input type="hidden" name="project" value={p.id} /><input class="z-input" name="name" value={p.name} maxlength="80" aria-label="Project name" /><button class="z-btn z-btn-secondary" type="submit">Rename</button></form>
-                  ) : <h3>{p.name}</h3>}
-                  <span class="muted">{envs.length} of {MAX_ENVIRONMENTS} environments · {members.length} {members.length === 1 ? 'person' : 'people'}{billableSeats ? ` · ${billableSeats} paid ${billableSeats === 1 ? 'seat' : 'seats'}` : ''}</span>
-                </header>
-
-                {requests.length > 0 && can.answerRequests(a) && (
-                  <div class="z-requests">
-                    {requests.map((r) => (
-                      <form method="post" class="z-request">
-                        <input type="hidden" name="action" value="request" /><input type="hidden" name="project" value={p.id} /><input type="hidden" name="request" value={r.id} />
-                        <span><b>{r.email}</b> asks to join (tried to add {r.domain}){r.message && <> — “{r.message}”</>}</span>
-                        <span class="z-request-actions">
-                          <button class="z-btn z-btn-secondary" name="answer" value="pro">Invite as Pro</button>
-                          <button class="z-btn z-btn-secondary" name="answer" value="basic">Invite as Basic</button>
-                          <button class="z-link" name="answer" value="decline">Decline</button>
-                        </span>
-                      </form>
-                    ))}
-                  </div>
-                )}
-
-                <ul class="z-members">
-                  {members.map((m: Member) => (
-                    <li>
-                      {m.image_url ? <img class="z-avatar" src={m.image_url} alt="" /> : <span class="z-avatar z-avatar-txt">{initials(m.name || m.email)}</span>}
-                      <span class="z-member-who"><b>{m.name || m.email || 'Unknown'}{m.user_id === user.id && ' (you)'}</b><span class="muted">{m.email}</span></span>
-                      <span class="z-member-tags">
-                        {m.role === 'owner' && <span class="z-chip">Project owner</span>}
-                        {can.changeAccess(a) && m.role !== 'owner' ? (
-                          <form method="post" class="z-access-form">
-                            <input type="hidden" name="action" value="access" /><input type="hidden" name="project" value={p.id} /><input type="hidden" name="user" value={m.user_id} />
-                            <select class="z-select" name="access" onchange="this.form.submit()" aria-label={`Access for ${m.email}`}>
-                              <option value="pro" selected={m.access === 'pro'}>Pro (edit)</option>
-                              <option value="basic" selected={m.access === 'basic'}>Basic (view)</option>
-                            </select>
-                          </form>
-                        ) : <span class={`z-chip ${m.access}`}>{m.access === 'pro' ? 'Pro' : 'Basic'}</span>}
-                        {billable(m) ? <span class="muted z-seat" title="Billed to this project">paid seat</span> : m.access === 'pro' ? <span class="muted z-seat" title={`${PLAN_LABEL[m.plan]} plan`}>free seat</span> : null}
-                      </span>
-                      <span class="z-member-actions">
-                        {can.transfer(a) && m.role !== 'owner' && m.plan !== 'basic' && (
-                          <details class="z-confirm"><summary class="z-link">Make owner</summary>
-                            <form method="post"><input type="hidden" name="action" value="transfer" /><input type="hidden" name="project" value={p.id} /><input type="hidden" name="user" value={m.user_id} />
-                              <p class="muted">{m.name || m.email} becomes the project owner and handles members and billing. You stay as a Pro member.</p>
-                              <button class="z-btn z-btn-secondary" type="submit">Hand over {p.name}</button></form>
-                          </details>
-                        )}
-                        {can.remove(a, m) && (
-                          <form method="post"><input type="hidden" name="action" value="remove" /><input type="hidden" name="project" value={p.id} /><input type="hidden" name="user" value={m.user_id} /><button class="z-link danger" type="submit">Remove</button></form>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                  {invites.map((i) => (
-                    <li class="pending">
-                      <span class="z-avatar z-avatar-txt">✉</span>
-                      <span class="z-member-who"><b>{i.email}</b><span class="muted">Invited {fmt.date(i.created)} · expires {fmt.date(i.expires)}</span></span>
-                      <span class="z-member-tags"><span class={`z-chip ${i.access}`}>{i.access === 'pro' ? 'Pro' : 'Basic'}</span><span class="muted z-seat">pending</span></span>
-                      <span class="z-member-actions">{can.invite(a) && <button class="z-link" type="button" data-copy={`${inviteBase}${i.token}`} onclick="var b=this,sv=document.documentElement.lang==='sv',t=b.textContent;navigator.clipboard.writeText(b.dataset.copy).then(()=>{b.textContent=sv?'Kopierad':'Copied';setTimeout(()=>b.textContent=t,2000)})">Copy link</button>}{can.invite(a) && <form method="post"><input type="hidden" name="action" value="revoke" /><input type="hidden" name="project" value={p.id} /><input type="hidden" name="token" value={i.token} /><button class="z-link" type="submit">Withdraw</button></form>}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                {can.invite(a) && (
-                  <form method="post" class="z-invite-form">
-                    <input type="hidden" name="action" value="invite" /><input type="hidden" name="project" value={p.id} />
-                    <input class="z-input" type="email" name="email" required placeholder="name@company.com" aria-label="Email to invite" />
-                    <select class="z-select" name="access" aria-label="Access">
-                      <option value="pro">Pro — can edit{price ? ` (${money(price.amount, price.currency)}/month)` : ''}</option>
-                      <option value="basic">Basic – Free — view only</option>
-                    </select>
-                    <button class="z-btn z-btn-primary" type="submit">Invite</button>
-                  </form>
-                )}
-                {!mailEnabled() && can.invite(a) && <p class="muted z-small">Email isn’t connected yet, so invitations are only shown here — share the invitation link from Admin until it is.</p>}
-
-                <footer class="z-set-project-foot">
-                  {can.leave(a) && <form method="post"><input type="hidden" name="action" value="leave" /><input type="hidden" name="project" value={p.id} /><button class="z-btn z-btn-secondary" type="submit">Leave project</button></form>}
-                  {a.role === 'owner' && !can.leave(a) && <span class="muted z-small">To leave, hand the project over to another Pro member first.</span>}
-                  <span class="z-spacer"></span>
-                  {can.deleteProject(a) && (
-                    <details class="z-confirm"><summary class="z-link danger">Delete project</summary>
-                      <form method="post"><input type="hidden" name="action" value="delete" /><input type="hidden" name="project" value={p.id} />
-                        <p class="muted">Deletes {p.name}, its {envs.length} {envs.length === 1 ? 'environment' : 'environments'} and all collected data. This can’t be undone.</p>
-                        <input class="z-input" name="confirm" placeholder={`Type “${p.name}”`} autocomplete="off" />
-                        <button class="z-btn z-btn-danger" type="submit">Delete forever</button></form>
-                    </details>
-                  )}
-                </footer>
-              </article>
-            ))}
           </div>
         )}
 
