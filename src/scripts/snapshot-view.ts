@@ -7,7 +7,7 @@
 // viewer can scroll it to the interesting spot.
 
 type Heat = { mode: 'heat'; clicks: [number, number, number][]; fold: number };
-type Scroll = { mode: 'scroll'; reach: number[] };
+type Scroll = { mode: 'scroll'; reach: number[]; fold?: number };
 type PathO = { mode: 'path'; clicks: [number, number, number, number, number][]; seen: number; fold: number }; // x, y, rage, dead, number
 export type SnapProps = {
   snapshot: string | null; // URL of the stored snapshot text
@@ -62,6 +62,7 @@ function drawScroll(ctx: CanvasRenderingContext2D, W: number, H: number, o: Scro
     ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(16, y - 14, ctx.measureText(label).width + 20, 28);
     ctx.fillStyle = '#fff'; ctx.fillText(label, 26, y + 6);
   }
+  if (o.fold) foldLine(ctx, W, o.fold, 'Average fold');
 }
 
 function drawPath(ctx: CanvasRenderingContext2D, W: number, H: number, o: PathO) {
@@ -93,9 +94,16 @@ function drawPath(ctx: CanvasRenderingContext2D, W: number, H: number, o: PathO)
 
 function foldLine(ctx: CanvasRenderingContext2D, W: number, y: number, text: string) {
   if (!y) return;
-  ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(0,0,0,.45)'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); ctx.setLineDash([]);
-  ctx.font = '600 13px Inter, system-ui, sans-serif'; ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillText(text, 12, y - 8);
+  const s = Math.max(1, W / 1280);
+  // Dark line with a light edge, so it reads on both light and dark pages.
+  ctx.setLineDash([10 * s, 7 * s]);
+  ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 4 * s; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  ctx.strokeStyle = 'rgba(12,12,16,.85)'; ctx.lineWidth = 2 * s; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = `600 ${13 * s}px Inter, system-ui, sans-serif`;
+  const t = `${text} · ${Math.round(y)} px`, w = ctx.measureText(t).width;
+  ctx.fillStyle = 'rgba(12,12,16,.88)'; ctx.fillRect(W - w - 36 * s, y - 28 * s, w + 20 * s, 26 * s);
+  ctx.fillStyle = '#fff'; ctx.fillText(t, W - w - 26 * s, y - 10 * s);
 }
 
 function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, s: number, bg: string) {

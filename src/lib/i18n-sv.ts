@@ -262,6 +262,14 @@ export const SV: Record<string, string> = {
     'Probe startar en ny version när sajtens layout ändras på riktigt: det gemensamma sidhuvudet, menyn eller sidfoten ändras, många sidor får en ny layout, eller startsidan görs om – och ändringen består mellan besöken. Textändringar räknas inte, men de startar nya granskningar. Datumet är när den nya layouten först dök upp och kan inte ändras. Slå ihop en version igen om det inte var en riktig release.',
   'failing': 'underkänd', 'passes': 'godkänd', 'needs work': 'behöver arbete', 'needs work (half the points)': 'behöver arbete (halva poängen)', 'HTTPS': 'HTTPS',
   'meta robots': 'meta robots', 'capital letters': 'versaler', 'underscores, spaces or encoded characters': 'understreck, mellanslag eller kodade tecken', 'longer than 90 characters': 'längre än 90 tecken',
+  // AI traffic and fold
+  'Everyone': 'Alla', 'People': 'Personer', 'No AI agent visits in this period.': 'Inga besök av AI-agenter i perioden.', 'They appear here when an assistant opens a page in a real browser.': 'De visas här när en assistent öppnar en sida i en riktig webbläsare.',
+  'AI agents are assistants that open your site themselves to answer someone’s question, such as ChatGPT or Claude browsing for a user. They are kept apart from people: not counted as visitors, and left out of heatmaps and other statistics. Crawlers that only read the HTML can’t be seen by the snippet.': 'AI-agenter är assistenter som själva öppnar din sajt för att svara på någons fråga, till exempel när ChatGPT eller Claude surfar åt en användare. De hålls isär från personer: de räknas inte som besökare och tas inte med i värmekartor eller annan statistik. Sökrobotar som bara läser HTML-koden kan inte ses av koden.',
+  'Via AI': 'Via AI', 'AI agents': 'AI-agenter', 'Visitors': 'Besökare',
+  'People who clicked a link in an AI assistant’s answer': 'Personer som klickade på en länk i ett AI-svar', 'AI agents that opened the site themselves, on someone’s behalf': 'AI-agenter som själva öppnade sajten, åt någon',
+  'of the page fits above it': 'av sidan ryms ovanför den', 'of visits scrolled past it': 'av besöken scrollade förbi den',
+  'Where the first screen ends on desktop, shown as a dashed line on the page.': 'Där första skärmen slutar på dator, visas som en streckad linje på sidan.',
+  'Where the first screen ends on phones, shown as a dashed line on the page.': 'Där första skärmen slutar på mobil, visas som en streckad linje på sidan.',
   // Misc
   'Sign in': 'Logga in', 'Sign up': 'Registrera dig', 'Close': 'Stäng', 'Cancel': 'Avbryt', 'Back': 'Tillbaka', 'Delete': 'Radera', 'Yes': 'Ja', 'No': 'Nej', 'Loading…': 'Laddar…',
   'Free for your first site · Made in Stockholm': 'Gratis för din första sajt · Gjord i Stockholm',
@@ -352,6 +360,7 @@ export const RULES: [RegExp, (...m: string[]) => string][] = [
   [/^(.+) \((.+)\) tried to add (.+) to (?:Probe|Ziffer) and is asking to join your project instead\.$/, (_, a, b, c) => `${a} (${b}) försökte lägga till ${c} i Probe och ber om att gå med i ditt projekt i stället.`],
   [/^(.+) accepted the invitation and has (Pro|Basic) access\.$/, (_, a, b) => `${a} accepterade inbjudan och har ${b}-åtkomst.`], [/^(.+) accepted your request\. You have (Pro|Basic) access\.$/, (_, a, b) => `${a} godkände din förfrågan. Du har ${b}-åtkomst.`],
   [/^last checked (.+)$/, (_, a) => `senast granskad ${a}`], [/^Checked (.+)$/, (_, a) => `Granskad ${a}`], [/^new site version$/, () => 'ny version av sajten'],
+  [/^via (.+)$/, (_, a) => `via ${a}`], [/^AI agent · (.+)$/, (_, a) => `AI-agent · ${a}`], [/^Average fold at ([\d\s,.]+) px$/, (_, a) => `Genomsnittlig fold vid ${a} px`],
   [/^Last run: never\.$/, () => 'Senaste körning: aldrig.'],
   [/^Seats are counted, invoices made, alerts and weekly reports sent once an hour while there’s traffic\. Last run: (.+?)\. Email (isn’t connected \(add RESEND_API_KEY\)|is connected)\.$/, (_, w, e) =>
     `Platser räknas, fakturor skapas, larm och veckorapporter skickas en gång i timmen när det finns trafik. Senaste körning: ${w === 'never' ? 'aldrig' : w}. E-post ${e.startsWith('is connected') ? 'är kopplad' : 'är inte kopplad (lägg till RESEND_API_KEY)'}.`],

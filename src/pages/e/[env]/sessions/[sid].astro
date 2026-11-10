@@ -77,6 +77,7 @@ const tech = [s.browser, s.os].filter(Boolean).join(' on ');
           <span><DeviceIcon device={s.device} /> {fmt.device(s.device)}{tech ? ` · ${tech}` : ''}</span>
           <span title={countryName(s.country)}>{flag(s.country)} {countryName(s.country) || 'Unknown country'}</span>
           <span>From {s.referrer || 'a direct visit'}</span>
+          {s.ai && <span class="z-ai-tag">via {s.ai}</span>}
         </div>
         {signals.length > 0 && <div class="z-sc-signals">{signals.map((g) => <span class={`z-signal ${g.key}`}>{g.label}</span>)}</div>}
       </div>

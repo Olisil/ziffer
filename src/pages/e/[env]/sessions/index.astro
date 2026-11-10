@@ -5,7 +5,7 @@ import TitleRow from '../../../../components/TitleRow.astro';
 import SessionCard from '../../../../components/SessionCard.astro';
 import { loadEnvPage, fmt } from '../../../../lib/page';
 import { rangeOf, url } from '../../../../lib/server';
-import { sessionFacets, sessionList, sessionSummary, type SessionFilters } from '../../../../lib/stats';
+import { agentVisits, sessionFacets, sessionList, sessionSummary, type SessionFilters } from '../../../../lib/stats';
 import { countryName, dayLabel, flag } from '../../../../lib/look';
 
 const ctx = await loadEnvPage(Astro);
@@ -20,9 +20,12 @@ const f: SessionFilters = {
   signal: pick(sp.get('signal'), ['frustrated', 'bounced', 'engaged'] as const),
   sort: pick(sp.get('sort'), ['newest', 'longest', 'pages', 'frustrated'] as const) ?? 'newest',
   source: sp.get('source') || undefined,
+  who: pick(sp.get('who'), ['ai'] as const),
   country: sp.get('country') || undefined,
   page: sp.get('page') || undefined,
 };
+const agentsView = sp.get('who') === 'agents';
+const agents = agentsView ? await agentVisits(env.id, r.from, r.to) : [];
 const n = Math.max(0, Number(sp.get('n') || 0) | 0);
 const PER = 30;
 const [rows, sum, facets] = await Promise.all([
@@ -53,14 +56,14 @@ for (const s of list) {
   if (g && g.day === day) g.items.push(s); else groups.push({ day, items: [s] });
 }
 const detailQuery = Astro.url.search;
-const activeFilters = [f.device, f.source, f.country, f.page].filter(Boolean).length;
+const activeFilters = [f.device, f.source, f.country, f.page, f.who].filter(Boolean).length;
 ---
 <App title={`${env.name} · Sessions`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main">
     <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} site={env} title="Sessions" range={r.key} />
 
-    <section class="z-signal-tiles" aria-label="Session signals">
+    <section class="z-signal-tiles" aria-label="Session signals" hidden={agentsView}>
       {tiles.map((t) => (
         <a class:list={['z-stile', t.key ?? 'all']} href={link({ signal: t.key })} aria-current={f.signal === t.key ? 'true' : undefined}>
           <span class="z-stile-label"><i></i>{t.label}</span>
@@ -80,6 +83,12 @@ const activeFilters = [f.device, f.source, f.country, f.page].filter(Boolean).le
         <a href={link({ device: 'mobile' })} aria-current={String(f.device === 'mobile')}>Mobile</a>
       </nav>
       {f.device && <input type="hidden" name="device" value={f.device} />}
+      <nav class="z-seg" aria-label="Visitors">
+        <a href={link({ who: undefined })} aria-current={String(!f.who && !agentsView)}>People</a>
+        <a href={link({ who: 'ai' })} aria-current={String(f.who === 'ai')} title="People who clicked a link in an AI assistant’s answer">Via AI<i class="z-seg-n">{fmt.int(facets.who.ai)}</i></a>
+        <a href={link({ who: 'agents' })} aria-current={String(agentsView)} title="AI agents that opened the site themselves, on someone’s behalf">AI agents<i class="z-seg-n">{fmt.int(facets.who.agents)}</i></a>
+      </nav>
+      {(f.who || agentsView) && <input type="hidden" name="who" value={agentsView ? 'agents' : f.who} />}
       <label class="z-fsel"><span>Page</span>
         <select name="page" class="z-select" onchange="this.form.submit()">
           <option value="">Any page</option>
@@ -110,7 +119,28 @@ const activeFilters = [f.device, f.source, f.country, f.page].filter(Boolean).le
       {(activeFilters > 0 || f.signal) && <a class="z-clear" href={link({ device: undefined, source: undefined, country: undefined, page: undefined, signal: undefined })}>Clear filters</a>}
     </form>
 
-    <section class="z-card z-sessions">
+    {agentsView && (
+      <section class="z-card z-sessions">
+        <p class="z-agents-note muted">AI agents are assistants that open your site themselves to answer someone’s question, such as ChatGPT or Claude browsing for a user. They are kept apart from people: not counted as visitors, and left out of heatmaps and other statistics. Crawlers that only read the HTML can’t be seen by the snippet.</p>
+        {agents.length === 0 && <div class="z-empty-small"><b>No AI agent visits in this period.</b><span class="muted">They appear here when an assistant opens a page in a real browser.</span></div>}
+        <div class="z-sc-list">
+          {agents.map((a) => (
+            <div class="z-sc z-agent-row">
+              <span class="z-sc-who"><span class="z-sc-who-text">
+                <span class="z-sc-time">{dayLabel(a.started)} {fmt.time(a.started)}</span>
+                <span class="z-sc-geo" title={countryName(a.country)}>{flag(a.country)} {a.country || '—'}</span>
+              </span></span>
+              <span class="z-sc-main">
+                <span class="z-ai-tag agent">AI agent · {a.agent}</span>
+                <span class="z-sc-path">{a.paths.slice(0, 6).map((p, i) => <>{i > 0 && <span class="muted"> → </span>}<b>{p}</b></>)}{a.paths.length > 6 && <span class="muted"> +{a.paths.length - 6}</span>}</span>
+              </span>
+              <span class="z-sc-stats"><span><b>{a.paths.length}</b><small>{a.paths.length === 1 ? 'page' : 'pages'}</small></span></span>
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+    <section class="z-card z-sessions" hidden={agentsView}>
       <div class="z-ribbon-legend" aria-hidden="true">
         <span><i class="z-legend-seg"></i>Page, width = time spent, fill = scrolled</span>
         <span><i class="z-tick ok"></i>Click</span>

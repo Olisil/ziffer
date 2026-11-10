@@ -9,6 +9,8 @@
   function rid() { var a = new Uint8Array(12); (w.crypto || w.msCrypto).getRandomValues(a); for (var o = '', i = 0; i < a.length; i++) o += ('0' + a[i].toString(16)).slice(-2); return o; }
   try { sid = sessionStorage.getItem('zf_sid'); if (!sid) { sid = rid(); sessionStorage.setItem('zf_sid', sid); } } catch (e) { sid = rid(); }
   function dims() { var e = d.documentElement, b = d.body || e; return { vw: w.innerWidth, vh: w.innerHeight, dw: Math.max(e.scrollWidth, b.scrollWidth), dh: Math.max(e.scrollHeight, b.scrollHeight) }; }
+  // Only to recognise visits sent by an AI assistant: the name is kept, the rest of the address never is.
+  function aiSrc() { try { var m = /[?&]utm_source=([^&#]+)/i.exec(location.search), v = m ? decodeURIComponent(m[1]).toLowerCase() : ''; return /^(chatgpt|openai|perplexity|claude|gemini|copilot|mistral|lechat|deepseek|grok|meta\.?ai|phind)/.test(v) ? v.slice(0, 40) : ''; } catch (e) { return ''; } }
   function refHost() { try { var h = new URL(d.referrer).hostname; return h === location.hostname ? '' : h; } catch (e) { return ''; } }
   function engaged() { return pv ? pv.vis + (pv.since ? Date.now() - pv.since : 0) : 0; }
   function onScroll() { if (!pv) return; var g = dims(), p = g.dh > 0 ? Math.min(100, ((w.scrollY + g.vh) / g.dh) * 100) : 100; if (p > pv.scroll) pv.scroll = p; }
@@ -19,7 +21,7 @@
     var g = dims(), now = Date.now();
     pv = { id: rid(), path: location.pathname, vis: 0, since: d.visibilityState === 'visible' ? now : 0, scroll: 0 };
     // Query strings and hashes are dropped on purpose — they often carry personal data.
-    q.push({ t: 'pv', id: pv.id, p: pv.path, ti: d.title.slice(0, 140), r: firstPv ? refHost() : '', vw: g.vw, vh: g.vh, dw: g.dw, dh: g.dh, ts: now });
+    q.push({ t: 'pv', id: pv.id, p: pv.path, ti: d.title.slice(0, 140), r: firstPv ? refHost() : '', u: firstPv ? aiSrc() : '', vw: g.vw, vh: g.vh, dw: g.dw, dh: g.dh, ts: now });
     firstPv = false;
     onScroll(); flush();
     whenSettled(maybeSnapshot);

@@ -31,7 +31,7 @@ const pageUrl = env.domain ? `https://${env.domain}${path}` : null;
 // Draw on the snapshot's geometry when there is one, otherwise on the average of recorded page views.
 const width = snap?.dw || data.geo?.dw || (device === 'mobile' ? 390 : 1280);
 const height = Math.min(snap?.dh || data.geo?.dh || (device === 'mobile' ? 2400 : 3000), 30000);
-const fold = snap?.vh || data.geo?.vh || (device === 'mobile' ? 760 : 820);
+const fold = data.fold?.y || snap?.vh || data.geo?.vh || (device === 'mobile' ? 760 : 820);
 const viewW = snap?.vw || width;
 const viewH = Math.min(snap?.vh || fold, 1000);
 const link = (patch: Record<string, string>) => {
@@ -41,8 +41,9 @@ const link = (patch: Record<string, string>) => {
 };
 const snapshotUrl = snap ? url(`e/${env.id}/snapshot?page=${encodeURIComponent(path)}&device=${device}&sv=${encodeURIComponent(snap.version_id)}&v=${snap.ts}`) : null;
 const overlay = mode === 'scroll'
-  ? { mode: 'scroll' as const, reach: data.reach }
+  ? { mode: 'scroll' as const, reach: data.reach, fold }
   : { mode: 'heat' as const, fold, clicks: data.clicks.map((c) => [Math.round(c.xr * width), Math.round(c.dh ? (c.y * height) / c.dh : c.y), c.rage] as [number, number, number]) };
+const foldShare = Math.min(100, Math.round((fold / Math.max(1, height)) * 100));
 const rageCount = data.clicks.filter((c) => c.rage).length;
 ---
 <App title={`${env.name} · Heatmaps`}>
@@ -77,6 +78,14 @@ const rageCount = data.clicks.filter((c) => c.rage).length;
       <div class="z-card"><div class="z-kpi-label">Rage clicks</div><div class="z-kpi-value">{fmt.int(rageCount)}</div></div>
       <div class="z-card"><div class="z-kpi-label">Saw the whole page</div><div class="z-kpi-value">{fmt.pct((data.reach[20] || 0) * 100)}</div></div>
     </section>
+    {data.fold && (
+      <section class="z-card z-fold">
+        <span class="z-fold-mark" aria-hidden="true"></span>
+        <div><b>Average fold at {fmt.int(data.fold.y)} px</b><span class="muted">Where the first screen ends on {device === 'mobile' ? 'phones' : 'desktop'}, shown as a dashed line on the page.</span></div>
+        <div class="z-fold-num"><b>{foldShare}%</b><span class="muted">of the page fits above it</span></div>
+        <div class="z-fold-num"><b>{Math.round(data.fold.past * 100)}%</b><span class="muted">of visits scrolled past it</span></div>
+      </section>
+    )}
 
     <section class="z-card">
       <div class="z-card-head">

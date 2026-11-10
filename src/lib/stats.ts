@@ -74,10 +74,18 @@ export async function heatmapData(env: string, path: string, device: 'desktop' |
   const geo = await one<{ dw: number; dh: number; vh: number; n: number }>(
     `SELECT CAST(AVG(dw) AS INTEGER) AS dw, CAST(AVG(dh) AS INTEGER) AS dh, CAST(AVG(vh) AS INTEGER) AS vh, COUNT(*) AS n
        FROM pageviews WHERE env_id = ? AND path = ? AND ts >= ? AND ts < ? AND ${vwCond}`, env, path, from, to);
-  const scrolls = await all<{ scroll: number }>(
-    `SELECT scroll FROM pageviews WHERE env_id = ? AND path = ? AND ts >= ? AND ts < ? AND ${vwCond}`, env, path, from, to);
+  const scrolls = await all<{ scroll: number; vh: number | null; dh: number | null }>(
+    `SELECT scroll, vh, dh FROM pageviews WHERE env_id = ? AND path = ? AND ts >= ? AND ts < ? AND ${vwCond}`, env, path, from, to);
   const reach = Array.from({ length: 21 }, (_, i) => (scrolls.length ? scrolls.filter((r) => r.scroll >= i * 5).length / scrolls.length : 0));
-  return { clicks, geo, reach };
+  // The fold: where the first screen ends. The middle value, so one very tall or tiny window doesn't move it.
+  const sized = scrolls.filter((r) => (r.vh || 0) >= 200 && (r.dh || 0) > 0);
+  const hs = sized.map((r) => r.vh!).sort((a, b) => a - b);
+  const fold = hs.length ? {
+    y: hs[Math.floor(hs.length / 2)], n: hs.length,
+    // Scroll depth counts the bottom of the window, so "past the fold" means it moved beyond the first screen.
+    past: sized.filter((r) => (r.scroll / 100) * r.dh! > r.vh! * 1.05).length / sized.length,
+  } : null;
+  return { clicks, geo, reach, fold };
 }
 
 /* ---------- Overview: one card per environment ---------- */
@@ -134,6 +142,7 @@ export type SessionFilters = {
   device?: 'desktop' | 'tablet' | 'mobile';
   signal?: 'frustrated' | 'bounced' | 'engaged';
   source?: string; // referrer host, or 'direct'
+  who?: 'ai'; // sent by an AI assistant
   page?: string; // visited path
   country?: string;
   sort?: 'newest' | 'longest' | 'pages' | 'frustrated';
@@ -151,13 +160,14 @@ function sessionWhere(env: string, from: number, to: number, f: SessionFilters, 
   if (f.device) { w.push('COALESCE(s.device, \'desktop\') = ?'); b.push(f.device); }
   if (f.source === 'direct') w.push('s.referrer IS NULL');
   else if (f.source) { w.push('s.referrer = ?'); b.push(f.source); }
+  if (f.who === 'ai') w.push('s.ai IS NOT NULL');
   if (f.country) { w.push('s.country = ?'); b.push(f.country); }
   if (f.page) { w.push('EXISTS (SELECT 1 FROM pageviews p WHERE p.session_id = s.id AND p.path = ?)'); b.push(f.page); }
   if (withSignal && f.signal) w.push(SIGNAL_SQL[f.signal]);
   return { where: w.join(' AND '), binds: b };
 }
 
-export type SessionListRow = SessionRow & { browser: string | null; os: string | null; dead: number };
+export type SessionListRow = SessionRow & { browser: string | null; os: string | null; dead: number; ai: string | null };
 export type JourneyPage = { path: string; ts: number; duration: number; scroll: number };
 export type JourneyClick = { ts: number; rage: number; dead: number };
 
@@ -197,7 +207,9 @@ export async function sessionFacets(env: string, from: number, to: number) {
     all<{ v: string; n: number }>(`SELECT country AS v, COUNT(*) AS n FROM sessions WHERE env_id = ? AND started >= ? AND started < ? AND country IS NOT NULL GROUP BY 1 ORDER BY n DESC LIMIT 20`, env, from, to),
     all<{ v: string; n: number }>(`SELECT path AS v, COUNT(*) AS n FROM pageviews WHERE env_id = ? AND ts >= ? AND ts < ? GROUP BY 1 ORDER BY n DESC LIMIT 30`, env, from, to),
   ]);
-  return { sources, countries, pages };
+  const who = await one<{ ai: number; agents: number }>(`SELECT (SELECT COUNT(*) FROM sessions WHERE env_id = ?1 AND started >= ?2 AND started < ?3 AND ai IS NOT NULL) AS ai,
+    (SELECT COUNT(DISTINCT visit) FROM agent_views WHERE env_id = ?1 AND ts >= ?2 AND ts < ?3) AS agents`, env, from, to);
+  return { sources, countries, pages, who: who ?? { ai: 0, agents: 0 } };
 }
 
 /** Everything for one session page: views with their clicks and geometry, plus neighbours for prev/next. */
@@ -218,4 +230,17 @@ export async function sessionStory(env: string, sid: string) {
     return { ...p, clicks: clicks.filter((c) => c.path === p.path && c.ts >= p.ts - 1000 && c.ts < end) };
   });
   return { s, views, newer: prev?.id ?? null, older: next?.id ?? null };
+}
+
+/* ---------- AI agents: visits by assistants browsing on someone's behalf ---------- */
+export type AgentVisit = { visit: string; agent: string; started: number; country: string | null; paths: string[] };
+export async function agentVisits(env: string, from: number, to: number, limit = 100): Promise<AgentVisit[]> {
+  const rows = await all<{ visit: string; agent: string; path: string; ts: number; country: string | null }>(
+    `SELECT visit, agent, path, ts, country FROM agent_views WHERE env_id = ? AND ts >= ? AND ts < ? ORDER BY ts DESC LIMIT 2000`, env, from, to);
+  const m = new Map<string, AgentVisit>();
+  for (const r of rows) {
+    const v = m.get(r.visit) ?? { visit: r.visit, agent: r.agent, started: r.ts, country: r.country, paths: [] };
+    v.started = Math.min(v.started, r.ts); v.paths.unshift(r.path); m.set(r.visit, v);
+  }
+  return [...m.values()].sort((a, b) => b.started - a.started).slice(0, limit);
 }

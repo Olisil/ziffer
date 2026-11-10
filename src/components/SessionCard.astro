@@ -21,6 +21,7 @@ const exit = s.exit_path && s.exit_path !== entry ? s.exit_path : null;
       <span class="z-sc-time">{when}</span>
       <span class="z-sc-tech">{tech}</span>
       <span class="z-sc-geo" title={countryName(s.country)}>{flag(s.country)} {s.country || '—'} · {s.referrer || 'Direct'}</span>
+      {s.ai && <span class="z-ai-tag">via {s.ai}</span>}
     </span>
   </span>
   <span class="z-sc-main">

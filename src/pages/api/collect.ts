@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { APP_HOME, db } from '../../lib/server';
 import { confirmClaim, envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 import { browserOf, osOf } from '../../lib/ua';
+import { agentOf, assistantOf } from '../../lib/ai';
 import { isHash, observe } from '../../lib/versions';
 import { queueAudit, runPendingAudits } from '../../lib/audit';
 import { runJobs, tellVersion } from '../../lib/jobs';
@@ -55,8 +56,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const now = Date.now();
   const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || '';
   const ua = request.headers.get('User-Agent') || '';
-  if (/bot|crawl|spider|slurp|headless|lighthouse/i.test(ua)) return new Response(null, { status: 204, headers: cors });
   const country = ((request as any).cf?.country as string | undefined)?.slice(0, 2) || null;
+  // AI agents browsing for someone are noted on their own, never as people: no visitor count, clicks or heatmap data.
+  const agent = agentOf(ua);
+  if (agent) {
+    const views = body.ev.slice(0, 20).filter((e: any) => e && e.t === 'pv' && ID_RE.test(str(e.id, 64) || '') && pathOf(e.p));
+    if (views.length) await db().batch(views.map((e: any) => db().prepare('INSERT OR IGNORE INTO agent_views (id, visit, env_id, agent, path, ts, country) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(str(e.id, 64), sid, env.id, agent, pathOf(e.p), Math.min(now, Math.max(now - 864e5, Number(e.ts) || now)), country)));
+    return new Response(null, { status: 204, headers: cors });
+  }
+  if (/bot|crawl|spider|slurp|headless|lighthouse/i.test(ua)) return new Response(null, { status: 204, headers: cors });
   const DB = db();
   const stmts: D1PreparedStatement[] = [];
   let visitor: string | null = null;
@@ -73,9 +82,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
       visitor ??= await visitorHash(await dailySalt(), ip, ua, env.id);
       const ref = str(e.r, 120) || null;
       stmts.push(
-        DB.prepare(`INSERT INTO sessions (id, env_id, visitor, started, last_seen, pageviews, device, country, referrer, entry_path, exit_path, browser, os)
-                    VALUES (?1, ?2, ?3, ?4, ?4, 0, ?5, ?6, ?7, ?8, ?8, ?9, ?10) ON CONFLICT(id) DO NOTHING`)
-          .bind(sid, env.id, visitor, ts, deviceOf(vw), country, ref, path, browserOf(ua), osOf(ua)),
+        DB.prepare(`INSERT INTO sessions (id, env_id, visitor, started, last_seen, pageviews, device, country, referrer, entry_path, exit_path, browser, os, ai)
+                    VALUES (?1, ?2, ?3, ?4, ?4, 0, ?5, ?6, ?7, ?8, ?8, ?9, ?10, ?11) ON CONFLICT(id) DO NOTHING`)
+          .bind(sid, env.id, visitor, ts, deviceOf(vw), country, ref, path, browserOf(ua), osOf(ua), assistantOf(ref) || assistantOf(str(e.u, 40))),
         DB.prepare(`INSERT OR IGNORE INTO pageviews (id, session_id, env_id, path, title, ts, vw, vh, dw, dh)
                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?2 AND env_id = ?3)`)
           .bind(pvId, sid, env.id, path, str(e.ti, 140), ts, vw, num(e.vh, 0, 10000), num(e.dw, 0, 20000), num(e.dh, 0, 200000)),
