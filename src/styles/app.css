@@ -810,3 +810,19 @@ li[data-state='warn'] .z-it-mark::after { content: '!'; }
   .z-tabs .z-tab:not([aria-current='page']) .z-tab-label { display: none; }
   .z-tabs .z-tab:not([aria-current='page']) { padding: 6px 8px; }
 }
+
+/* Site avatars: favicon when the site has one, letter otherwise */
+.z-site-ico { --s: 18px; position: relative; width: var(--s); height: var(--s); flex-shrink: 0; display: inline-grid; place-items: center; border-radius: calc(var(--s) * .3); background: var(--_theme---text); color: var(--_theme---background); overflow: hidden; }
+.z-site-ico b { font-size: calc(var(--s) * .56); font-weight: 600; line-height: 1; }
+.z-site-ico img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.z-site-ico.i { background: transparent; }
+.z-site-ico.i b { visibility: hidden; }
+.z-site-ico .lt + .dk { display: none; }
+html.theme-dark .z-site-ico .lt + .dk { display: block; }
+html.theme-dark .z-site-ico .lt:has(+ .dk) { display: none; }
+/* Page titles with the site's icon in front */
+.z-title-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+@media (max-width: 600px) { .z-title-id .z-site-ico { --s: 36px !important; } }
+.z-site-ico.z-ov-mono { width: var(--s); height: var(--s); border-radius: 11px; color: #fff; background: linear-gradient(135deg, var(--z-blue), #7d5cff); }
+.z-site-ico.z-ov-mono b { font-weight: 700; font-size: 16px; }
+.z-site-ico.z-ov-mono.i { background: transparent; }

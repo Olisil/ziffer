@@ -2,6 +2,7 @@
 import { UserButton } from '@clerk/astro/components';
 import Logo from './Logo.astro';
 import Icon from './Icon.astro';
+import SiteIcon from './SiteIcon.astro';
 import { db, rangeOf, rangeQuery, url, type Environment, type Project } from '../lib/server';
 import { isServiceOwner, me } from '../lib/users';
 
@@ -31,6 +32,12 @@ const unread = viewer ? ((await db().prepare('SELECT COUNT(*) AS n FROM notifica
 const admin = isServiceOwner(viewer);
 const kindLabel = (k: string) => (k === 'web' ? 'Web' : 'Virtual tour');
 const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
+// Each project is pictured by its first website's favicon.
+const siteOf = new Map<string, { id: string; kind: string; domain: string | null }>();
+if (projects.length) {
+  const rows = await db().prepare(`SELECT id, project_id, kind, domain FROM environments WHERE kind = 'web' AND domain IS NOT NULL AND project_id IN (${projects.map(() => '?').join(',')}) ORDER BY created`).bind(...projects.map((p) => p.id)).all<{ id: string; project_id: string; kind: string; domain: string }>();
+  for (const r of rows.results ?? []) if (!siteOf.has(r.project_id)) siteOf.set(r.project_id, r);
+}
 ---
 <header class="z-app-header">
   <a class="z-logo" href={url('')} aria-label="Probe home">
@@ -41,13 +48,13 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
     <>
       <div class="z-divider" aria-hidden="true"></div>
       <details class="z-scope project">
-        <summary><span class="z-avatar-sq">{initial(project.name)}</span>{project.name}</summary>
+        <summary><SiteIcon env={siteOf.get(project.id)} name={project.name} size={22} />{project.name}</summary>
         <div class="z-scope-menu" role="menu">
-          <a href={url('')}><span class="z-avatar-sq">◎</span>All sites overview</a>
+          <a href={url('')}><span class="z-avatar-sq" style="width:22px;height:22px;border-radius:7px">◎</span>All sites overview</a>
           <div class="z-menu-sep"></div>
           <div class="z-menu-label">Projects</div>
           {projects.map((p) => (
-            <a href={url(`p/${p.id}`)} aria-current={p.id === project.id ? 'true' : undefined}><span class="z-avatar-sq">{initial(p.name)}</span>{p.name}</a>
+            <a href={url(`p/${p.id}`)} aria-current={p.id === project.id ? 'true' : undefined}><SiteIcon env={siteOf.get(p.id)} name={p.name} size={22} />{p.name}</a>
           ))}
           <div class="z-menu-sep"></div>
           <a href={url('new')}>+ New project</a>
@@ -57,11 +64,11 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
   )}
   {env && (
     <details class="z-scope env">
-      <summary><span class={`z-dot ${env.kind}`}></span>{env.name} · {kindLabel(env.kind)}</summary>
+      <summary>{env.kind === 'web' ? <SiteIcon env={env} name={env.name} size={20} /> : <span class={`z-dot ${env.kind}`}></span>}{env.name} · {kindLabel(env.kind)}</summary>
       <div class="z-scope-menu" role="menu">
         <div class="z-menu-label">Environments in {project?.name}</div>
         {environments.map((e) => (
-          <a href={url(`e/${e.id}${q}`)} aria-current={e.id === env.id ? 'true' : undefined}><span class={`z-dot ${e.kind}`}></span>{e.name} · {kindLabel(e.kind)}</a>
+          <a href={url(`e/${e.id}${q}`)} aria-current={e.id === env.id ? 'true' : undefined}>{e.kind === 'web' ? <SiteIcon env={e} name={e.name} size={20} /> : <span class={`z-dot ${e.kind}`}></span>}{e.name} · {kindLabel(e.kind)}</a>
         ))}
         <div class="z-menu-sep"></div>
         <a href={url(`p/${env.project_id}/environments/new`)}>+ Add environment</a>

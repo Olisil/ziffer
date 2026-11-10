@@ -1,4 +1,5 @@
 ---
+import SiteIcon from '../components/SiteIcon.astro';
 // Signed-in home: every project and environment as a card with its headline numbers.
 import App from '../layouts/App.astro';
 import AppHeader from '../components/AppHeader.astro';
@@ -50,7 +51,7 @@ const initial = (s: string) => s.trim().charAt(0).toUpperCase() || '?';
     {groups.map(({ p, envs }) => (
       <section class="z-ov-group">
         <div class="z-ov-group-head">
-          <span class="z-avatar-sq">{initial(p.name)}</span>
+          <SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={28} />
           <h2>{p.name}</h2>
           <span class="muted">{envs.length} {envs.length === 1 ? 'environment' : 'environments'}</span>
           <span class="z-spacer"></span>
@@ -65,7 +66,7 @@ const initial = (s: string) => s.trim().charAt(0).toUpperCase() || '?';
               <article class:list={['z-ov-card', e.kind]}>
                 <a class="z-ov-cover" href={url(`e/${e.id}${q}`)} aria-label={`Open ${e.name} dashboard`}></a>
                 <header class="z-ov-head">
-                  <span class={`z-ov-mono ${e.kind}`}>{initial(e.name)}</span>
+                  {e.kind === 'web' ? <SiteIcon env={e} name={e.name} size={40} class="z-ov-mono web" /> : <span class={`z-ov-mono ${e.kind}`}>{initial(e.name)}</span>}
                   <span class="z-ov-name">
                     <b>{e.name}</b>
                     <span class="muted">{e.domain || (e.kind === 'tour' ? 'Virtual tour' : 'No domain')}</span>

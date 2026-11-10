@@ -1,4 +1,5 @@
 ---
+import SiteIcon from '../../../components/SiteIcon.astro';
 import App from '../../../layouts/App.astro';
 import AppHeader from '../../../components/AppHeader.astro';
 import InstallSnippet from '../../../components/InstallSnippet.astro';
@@ -53,9 +54,12 @@ if (Astro.url.searchParams.get('saved')) notice = 'saved';
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="settings" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main" style="max-width:880px">
     <div class="z-title-row">
-      <div>
-        <div class="z-eyebrow">{project.name} · {env.name}</div>
-        <h1 class="z-h1">Settings</h1>
+      <div class="z-title-id">
+        <SiteIcon env={env} name={env.name} size={44} />
+        <div>
+          <div class="z-eyebrow">{project.name} · {env.name}</div>
+          <h1 class="z-h1">Settings</h1>
+        </div>
       </div>
     </div>
     {notice === 'welcome' && env.kind === 'web' && (

@@ -48,7 +48,7 @@ const rageCount = data.clicks.filter((c) => c.rage).length;
 <App title={`${env.name} · Heatmaps`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="heatmaps" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main">
-    <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} title="Heatmaps" range={r.key} />
+    <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} site={env} title="Heatmaps" range={r.key} />
     <section class="z-card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
       <form method="get" style="display:flex;gap:8px;align-items:center;flex:1;min-width:240px">
         {r.key === 'custom' ? <><input type="hidden" name="from" value={r.from} /><input type="hidden" name="to" value={r.to} />{r.label && <input type="hidden" name="vl" value={r.label} />}</> : <input type="hidden" name="range" value={r.key} />}

@@ -1,4 +1,5 @@
 ---
+import SiteIcon from '../../../../components/SiteIcon.astro';
 import App from '../../../../layouts/App.astro';
 import AppHeader from '../../../../components/AppHeader.astro';
 import ScoreRing from '../../../../components/ScoreRing.astro';
@@ -62,9 +63,12 @@ const lastRun = latest.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main" style="max-width:1120px">
     <div class="z-title-row">
-      <div>
+      <div class="z-title-id">
+        <SiteIcon env={env} name={env.name} size={44} />
+        <div>
         <div class="z-eyebrow">{project.name} · {env.name}{lastRun ? ` · last checked ${fmt.date(lastRun)} ${fmt.time(lastRun)}` : ''}</div>
         <h1 class="z-h1">Audits</h1>
+        </div>
       </div>
       <div class="z-spacer"></div>
       {canEdit && <form method="post"><input type="hidden" name="action" value="all" /><button class="z-btn z-btn-secondary" type="submit">Check all pages now</button></form>}

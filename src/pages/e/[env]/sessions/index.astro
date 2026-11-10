@@ -58,7 +58,7 @@ const activeFilters = [f.device, f.source, f.country, f.page].filter(Boolean).le
 <App title={`${env.name} · Sessions`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="sessions" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main">
-    <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} title="Sessions" range={r.key} />
+    <TitleRow eyebrow={`${project.name} · ${env.name} · Web`} site={env} title="Sessions" range={r.key} />
 
     <section class="z-signal-tiles" aria-label="Session signals">
       {tiles.map((t) => (

@@ -19,7 +19,7 @@
       '-webkit-mask-image:radial-gradient(120% 110% at 0 0,#000 0%,rgba(0,0,0,.55) 38%,transparent 72%);mask-image:radial-gradient(120% 110% at 0 0,#000 0%,rgba(0,0,0,.55) 38%,transparent 72%)';
     body.insertBefore(c, body.firstChild);
     var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)'), W = 0, H = 0, dpr = 1, rgb = '128,128,128', raf = 0, last = 0, lastColor = 0;
-    var COLS = 90, ROWS = 44;
+    var COLS = 100, ROWS = 58;
     function size() { dpr = Math.min(2, window.devicePixelRatio || 1); W = c.clientWidth; H = c.clientHeight; c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
     function color() { var m = /(\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(body).color || ''); rgb = m ? m[1] + ',' + m[2] + ',' + m[3] : '128,128,128'; }
     function frame(t) {
@@ -33,9 +33,10 @@
         for (var i = 0; i < cols; i++) {
           var u = i / (cols - 1);
           var wave = Math.sin(u * 7.5 + s * 0.5 + d * 2.2) * 0.55 + Math.sin(u * 3.1 - d * 4.4 - s * 0.32) * 0.35 + Math.cos(u * 13 + d * 9 + s * 0.9) * 0.1;
-          var gx = (u * 1.25 - 0.1) * W, gy = (d * 0.95) * H;
+          // The sheet starts well above the viewport so its top edge never shows, even at a wave's crest.
+          var gx = (u * 1.4 - 0.25) * W, gy = (d * 1.3 - 0.35) * H - 110;
           var px = gx * (0.55 + 0.45 * persp) + d * W * 0.1;
-          var py = gy * (0.75 + 0.25 * persp) - wave * 95 * persp + 60;
+          var py = gy * (0.75 + 0.25 * persp) - wave * 95 * persp;
           if (px < -4 || py < -4 || px > W + 4 || py > H + 4) continue;
           var r = (0.8 + 1.2 * persp) * (1 + 0.35 * wave);
           var alpha = a * (0.35 + 0.65 * persp) * (0.25 + 0.75 * (wave + 1) / 2);

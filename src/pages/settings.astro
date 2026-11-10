@@ -3,6 +3,7 @@ import { pickLang, LANG_COOKIE } from '../lib/i18n';
 // Settings: Account · Projects · Notifications · Plan & billing · Security — one panel with tabs.
 import { UserProfile } from '@clerk/astro/components';
 import App from '../layouts/App.astro';
+import SiteIcon from '../components/SiteIcon.astro';
 import AppHeader from '../components/AppHeader.astro';
 import { db, listEnvironments, listProjects, MAX_ENVIRONMENTS, ownerId, url, type Project } from '../lib/server';
 import { BILLING_GRACE_DAYS, fmt, isDevUser } from '../lib/page';
@@ -161,7 +162,7 @@ const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (use
                 {projects.length === 0 && <p class="muted">None yet.</p>}
                 <ul class="z-set-projects">
                   {data.map(({ p, a, envs }) => (
-                    <li><span class="z-avatar-sq">{initials(p.name)}</span><span><b>{p.name}</b><span class="muted">{a.role === 'owner' ? 'Project owner' : 'Member'} · {a.access === 'pro' ? 'Pro' : 'Basic'} · {envs.length} of {MAX_ENVIRONMENTS} environments</span></span></li>
+                    <li><SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={22} /><span><b>{p.name}</b><span class="muted">{a.role === 'owner' ? 'Project owner' : 'Member'} · {a.access === 'pro' ? 'Pro' : 'Basic'} · {envs.length} of {MAX_ENVIRONMENTS} environments</span></span></li>
                   ))}
                 </ul>
                 <a href={url('settings?tab=projects')}>Manage projects and people</a>
@@ -192,7 +193,7 @@ const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (use
             {data.map(({ p, members, envs, invites, requests, a, billableSeats }) => (
               <article class="z-set-project" id={`p-${p.id}`}>
                 <header>
-                  <span class="z-avatar-sq">{initials(p.name)}</span>
+                  <SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={28} />
                   {a.access === 'pro' ? (
                     <form method="post" class="z-inline-rename"><input type="hidden" name="action" value="rename" /><input type="hidden" name="project" value={p.id} /><input class="z-input" name="name" value={p.name} maxlength="80" aria-label="Project name" /><button class="z-btn z-btn-secondary" type="submit">Rename</button></form>
                   ) : <h3>{p.name}</h3>}

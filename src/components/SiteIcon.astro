@@ -1,0 +1,17 @@
+---
+// A site's avatar: its own favicon (light/dark, following the app theme), or the first letter as a fallback.
+import { url } from '../lib/server';
+interface Props { env?: { id: string; kind: string; domain: string | null } | null; name?: string; size?: number; class?: string }
+const { env, name = '', size = 18, class: cls } = Astro.props;
+const letter = (name || '?').trim().charAt(0).toUpperCase();
+const src = env && env.kind === 'web' && env.domain ? url(`e/${env.id}/icon`) : null;
+---
+<span class:list={['z-site-ico', cls]} style={`--s:${size}px`} aria-hidden="true">
+  <b>{letter}</b>
+  {src && (
+    <>
+      <img class="lt" src={`${src}?s=light`} alt="" width={size} height={size} loading="lazy" decoding="async" onload="this.parentNode.classList.add('i')" onerror="this.remove()" />
+      <img class="dk" src={`${src}?s=dark`} alt="" width={size} height={size} loading="lazy" decoding="async" onload="this.parentNode.classList.add('i')" onerror="this.remove()" />
+    </>
+  )}
+</span>
