@@ -1,6 +1,7 @@
 ---
 import { UserButton } from '@clerk/astro/components';
 import Logo from './Logo.astro';
+import Icon from './Icon.astro';
 import { db, rangeOf, rangeQuery, url, type Environment, type Project } from '../lib/server';
 import { isServiceOwner, me } from '../lib/users';
 
@@ -19,9 +20,12 @@ const sp = Astro.url.searchParams;
 const q = sp.get('range') || sp.get('from') ? `?${rangeQuery(rangeOf(Astro.url))}` : '';
 const tabs = env
   ? (env.kind === 'web'
-      ? [['dashboard', 'Dashboard', ''], ['sessions', 'Sessions', '/sessions'], ['heatmaps', 'Heatmaps', '/heatmaps'], ['versions', 'Versions', '/versions'], ['audits', 'Audits', '/audits'], ['settings', 'Settings', '/settings']]
+      ? [['dashboard', 'Dashboard', ''], ['sessions', 'Sessions', '/sessions'], ['heatmaps', 'Heatmaps', '/heatmaps'], ['audits', 'Audits', '/audits'], ['settings', 'Settings', '/settings']]
       : [['dashboard', 'Dashboard', ''], ['settings', 'Settings', '/settings']])
   : [];
+// On phones the Versions button sits with the other views.
+const mobileTabs = env?.kind === 'web' ? [...tabs.slice(0, 3), ['versions', 'Versions', '/versions'], ...tabs.slice(3)] : tabs;
+const noRange = (k: string) => k === 'settings' || k === 'versions' || k === 'audits';
 const viewer = await me(Astro).catch(() => null);
 const unread = viewer ? ((await db().prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').bind(viewer.id).first<{ n: number }>())?.n ?? 0) : 0;
 const admin = isServiceOwner(viewer);
@@ -64,13 +68,18 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
       </div>
     </details>
   )}
+  {env?.kind === 'web' && (
+    <a class="z-ver-btn" href={`${base}/versions`} aria-current={tab === 'versions' ? 'page' : undefined} title="Versions" aria-label="Versions">
+      <Icon name="versions" size={18} />
+    </a>
+  )}
   {!env && (
-    <nav class="z-tabs" aria-label="Views"><a class="z-tab" href={url('')} aria-current="page">Overview</a></nav>
+    <nav class="z-tabs" aria-label="Views"><a class="z-tab" href={url('')} aria-current="page"><Icon name="overview" /><span class="z-tab-label">Overview</span></a></nav>
   )}
   {tabs.length > 0 && (
     <nav class="z-tabs" aria-label="Views">
       {tabs.map(([key, label, path]) => (
-        <a class="z-tab" href={`${base}${path}${key === 'settings' || key === 'versions' || key === 'audits' ? '' : q}`} aria-current={tab === key ? 'page' : undefined}>{label}</a>
+        <a class="z-tab" href={`${base}${path}${noRange(key) ? '' : q}`} aria-current={tab === key ? 'page' : undefined} title={label}><Icon name={key as any} /><span class="z-tab-label">{label}</span></a>
       ))}
     </nav>
   )}
@@ -82,7 +91,7 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
     {unread > 0 && <span class="z-bell-dot">{unread > 9 ? '9+' : unread}</span>}
   </a>
   <a class="z-toggle" href={url('settings')} aria-label="Settings">
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7 3.4 3.4" stroke-linecap="round" /></svg>
+    <Icon name="settings" size={17} />
   </a>
   <button class="z-toggle" type="button" data-theme-toggle aria-label="Switch between light and dark mode">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5" /><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor" /></svg>
@@ -91,8 +100,8 @@ const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
 </header>
 {tabs.length > 0 && (
   <nav class="z-mobile-tabs" aria-label="Views">
-    {tabs.map(([key, label, path]) => (
-      <a class="z-tab" href={`${base}${path}${key === 'settings' || key === 'versions' || key === 'audits' ? '' : q}`} aria-current={tab === key ? 'page' : undefined}>{label}</a>
+    {mobileTabs.map(([key, label, path]) => (
+      <a class="z-tab" href={`${base}${path}${noRange(key) ? '' : q}`} aria-current={tab === key ? 'page' : undefined}><Icon name={key as any} />{label}</a>
     ))}
   </nav>
 )}

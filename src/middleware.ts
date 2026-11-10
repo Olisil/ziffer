@@ -2,6 +2,7 @@ import { clerkMiddleware } from '@clerk/astro/server';
 import { env } from 'cloudflare:workers';
 import type { MiddlewareHandler } from 'astro';
 import { APP_HOME, BASE } from './lib/server';
+import { LANG_COOKIE, pickLang, translateResponse } from './lib/i18n';
 
 // Public, cookieless tracker endpoints never touch Clerk.
 // (and Stripe's webhook, which is verified by its signature instead)
@@ -39,7 +40,19 @@ function sameOrigin(req: Request, u: URL) {
 const OLD_HOSTS = new Set(['ziffer.webflow.io']);
 function publicHost(req: Request, u: URL) { return (req.headers.get('X-Forwarded-Host') || req.headers.get('Host') || u.host).split(',')[0].trim().toLowerCase(); }
 
-export const onRequest: MiddlewareHandler = (context, next) => {
+// Swedish: pages are written in English and translated on the way out (see lib/i18n-sv.ts).
+const localized: MiddlewareHandler = async (context, next) => {
+  const res = await next();
+  if (!(res.headers.get('content-type') || '').includes('text/html')) return res;
+  const lang = pickLang(context.request, context.cookies.get(LANG_COOKIE)?.value, (context.locals as any).__me?.lang);
+  if (lang !== 'sv') return res;
+  const out = translateResponse(res);
+  out.headers.set('Content-Language', 'sv');
+  out.headers.append('Vary', 'Accept-Language, Cookie');
+  return out;
+};
+
+const routed: MiddlewareHandler = (context, next) => {
   if (isTracker(context.url.pathname)) return next();
   if ((context.request.method === 'GET' || context.request.method === 'HEAD') && OLD_HOSTS.has(publicHost(context.request, context.url)))
     return Response.redirect(`${APP_HOME}${context.url.pathname}${context.url.search}`, 301);
@@ -50,3 +63,5 @@ export const onRequest: MiddlewareHandler = (context, next) => {
   if (import.meta.env.DEV && (env as any).ZIFFER_DEV_USER) return devBypass(context, next);
   return withClerk(context, next);
 };
+
+export const onRequest: MiddlewareHandler = (context, next) => routed(context, () => localized(context, next));

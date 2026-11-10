@@ -70,7 +70,7 @@ if (Astro.url.searchParams.get('saved')) notice = 'saved';
         {env.domain && (env.verified_at
           ? <p class="z-claim ok"><span class="z-st pass"></span>{env.domain} is confirmed for this project since {fmt.date(env.verified_at)}.</p>
           : <p class="z-claim"><span class="z-st warn"></span>{env.domain} is reserved for this project until {fmt.date(reservedUntil!)}. It’s confirmed as soon as the first visit arrives through this snippet — otherwise the reservation lapses.</p>)}
-        <InstallSnippet siteKey={env.site_key} domain={env.domain} />
+        <InstallSnippet siteKey={env.site_key} domain={env.domain} envId={env.id} />
       </section>
     )}
 

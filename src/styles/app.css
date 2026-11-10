@@ -30,6 +30,7 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; background: var(--_theme---background); color: var(--_theme---text); }
+body { background: transparent; } /* the page colour lives on <html> so the background fabric can sit behind the content */
 body { font-family: var(--font-sans); font-size: 15px; line-height: 1.55; -webkit-font-smoothing: antialiased; transition: background-color 200ms, color 200ms; }
 a { color: inherit; }
 h1, h2, h3, h4 { margin: 0; font-weight: 500; letter-spacing: -0.02em; }
@@ -771,4 +772,41 @@ a.z-akpi:hover { border-color: color-mix(in srgb, var(--_theme---text) 30%, tran
   .z-admin-nav { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
   .z-admin-nav a { white-space: nowrap; }
   .z-admin-filter .z-select { max-width: 42%; }
+}
+
+/* ---- view icons and the Versions button ---- */
+.z-tab { display: inline-flex; align-items: center; gap: 6px; }
+.z-tab .z-icon { flex-shrink: 0; opacity: .75; }
+.z-tab[aria-current='page'] .z-icon, .z-tab:hover .z-icon { opacity: 1; }
+.z-ver-btn { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--_theme---border); color: var(--_theme---text-muted); text-decoration: none; flex-shrink: 0; }
+.z-ver-btn:hover { color: var(--_theme---text); background: var(--_theme---surface-raised); }
+.z-ver-btn[aria-current='page'] { color: var(--_theme---text); background: var(--_theme---surface-raised); border-color: color-mix(in srgb, var(--_theme---text) 35%, transparent); }
+@media (max-width: 991px) { .z-ver-btn { display: none; } }
+
+/* ---- installation test ---- */
+.z-install-test { border: 1px solid var(--_theme---border); border-radius: 12px; padding: 12px 14px; background: var(--_theme---surface-raised); }
+.z-install-test ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.z-install-test li { display: flex; gap: 10px; align-items: flex-start; line-height: 1.45; }
+.z-it-mark { width: 18px; height: 18px; border-radius: 99px; flex-shrink: 0; margin-top: 1px; border: 1.5px solid var(--_theme---border); display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+li[data-state='busy'] .z-it-mark, li[data-state='wait'] .z-it-mark { border-color: var(--_theme---text-muted); border-top-color: transparent; animation: z-spin .9s linear infinite; }
+li[data-state='ok'] .z-it-mark { background: var(--z-green); border-color: var(--z-green); color: #fff; }
+li[data-state='ok'] .z-it-mark::after { content: '✓'; }
+li[data-state='bad'] .z-it-mark { background: var(--z-coral); border-color: var(--z-coral); color: #fff; }
+li[data-state='bad'] .z-it-mark::after { content: '!'; }
+li[data-state='warn'] .z-it-mark { background: var(--z-amber); border-color: var(--z-amber); color: #111; }
+li[data-state='warn'] .z-it-mark::after { content: '!'; }
+@keyframes z-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { li[data-state] .z-it-mark { animation: none !important; } }
+
+@media print { body > canvas[aria-hidden] { display: none !important; } }
+
+/* Language picker */
+.z-lang-pick { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--_theme---border); border-radius: 999px; }
+.z-lang-btn { border: 0; background: none; color: var(--_theme---text-muted); font: inherit; font-size: 13px; font-weight: 500; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+.z-lang-btn:hover { color: var(--_theme---text); }
+.z-lang-btn.on { background: var(--_theme---text); color: var(--_theme---background); }
+/* Narrower desktops: only the current tab keeps its label, the rest show icons (name on hover). */
+@media (min-width: 992px) and (max-width: 1439px) {
+  .z-tabs .z-tab:not([aria-current='page']) .z-tab-label { display: none; }
+  .z-tabs .z-tab:not([aria-current='page']) { padding: 6px 8px; }
 }

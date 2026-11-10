@@ -45,7 +45,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!key || !sid || !ID_RE.test(sid) || !Array.isArray(body.ev)) return new Response('bad', { status: 400, headers: cors });
   const env = await envForKey(key);
   if (!env || env.kind !== 'web') return new Response('unknown site', { status: 404, headers: cors });
-  if (!originAllowed(origin, env.domain)) return new Response('origin not allowed', { status: 403, headers: cors });
+  if (!originAllowed(origin, env.domain)) {
+    // Remember the last refused origin for a few minutes, so the installation test can explain it.
+    if (origin) locals.cfContext?.waitUntil?.(db().prepare("INSERT INTO app_settings (key, value, updated) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated = excluded.updated")
+      .bind(`refused:${env.id}`, origin.slice(0, 200), Date.now()).run().catch(() => null));
+    return new Response('origin not allowed', { status: 403, headers: cors });
+  }
 
   const now = Date.now();
   const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || '';

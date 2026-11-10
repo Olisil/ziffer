@@ -23,5 +23,6 @@ const assets = (import.meta.env.ASSETS_PREFIX || import.meta.env.BASE_URL || '/'
   </head>
   <body>
     <slot />
+    <script is:inline defer src={`${assets}/fabric.js`} data-strength="0.16"></script>
   </body>
 </html>

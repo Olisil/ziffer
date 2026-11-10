@@ -1,8 +1,10 @@
 ---
 import { appOrigin } from '../lib/notify';
 import { url } from '../lib/server';
-interface Props { siteKey: string; domain: string | null }
-const { siteKey, domain } = Astro.props;
+interface Props { siteKey: string; domain: string | null; envId: string }
+const { siteKey, domain, envId } = Astro.props;
+const checkUrl = url(`e/${envId}/install-check`);
+const site = domain ? `https://${domain}/` : '';
 const src = new URL(url('z.js'), appOrigin(Astro.request)).href;
 const snippet = `<script defer src="${src}" data-site="${siteKey}"></script>`;
 ---
@@ -13,13 +15,83 @@ const snippet = `<script defer src="${src}" data-site="${siteKey}"></script>`;
   <textarea class="z-code" rows="2" readonly onclick="this.select()" aria-label="Install snippet">{snippet}</textarea>
   <div style="display:flex;gap:8px;align-items:center">
     <button class="z-btn z-btn-secondary" type="button" data-copy={snippet}>Copy snippet</button>
-    <span class="muted" style="font-size:12px">No cookies · no text or form input recorded · Probe’s own previews are ignored</span>
+    <button class="z-btn z-btn-primary" type="button" data-install-test={checkUrl} data-site-url={site}>Test installation</button>
   </div>
+  <div class="z-install-test" hidden aria-live="polite">
+    <ol>
+      <li data-step="html"><span class="z-it-mark"></span><span class="z-it-text">Looking for the snippet on {domain}…</span></li>
+      <li data-step="hit"><span class="z-it-mark"></span><span class="z-it-text">Waiting for a visit. <a href={site} target="_blank" rel="noopener">Open {domain}</a> in a new tab and click around.</span></li>
+    </ol>
+  </div>
+  <span class="muted" style="font-size:12px">No cookies · no text or form input recorded · Probe’s own previews are ignored</span>
 </div>
 <script is:inline>
-  document.addEventListener('click', function (e) {
-    var b = e.target.closest && e.target.closest('[data-copy]');
-    if (!b) return;
-    navigator.clipboard.writeText(b.getAttribute('data-copy')).then(function () { var t = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1500); });
-  });
+  (function () {
+    if (window.__probeInstallTest) return; window.__probeInstallTest = true;
+    var SV = document.documentElement.lang === 'sv';
+    function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    var T = SV ? {
+      testing: 'Testar…', again: 'Testa igen', copied: 'Kopierad',
+      looking: function (h) { return 'Letar efter koden på ' + h + '…'; },
+      waiting: function (s, h) { return 'Väntar på ett besök. <a href="' + s + '" target="_blank" rel="noopener">Öppna ' + h + '</a> i en ny flik och klicka runt.'; },
+      noLoad: function (h, e) { return 'Kunde inte ladda ' + h + (e ? ' (' + e + ')' : '') + '. Livetestet nedan fungerar ändå.'; },
+      found: function (h, head) { return 'Koden hittades på ' + h + (head ? ', i head' : '') + '.'; },
+      otherKey: function (h, k) { return 'Det finns en Probe-kod på ' + h + ', men med en annan sajtnyckel' + (k ? ' (' + k + ')' : '') + '. Byt ut den mot koden ovan.'; },
+      missing: function (h) { return 'Koden finns inte i den publicerade HTML-koden på ' + h + ' än. Klistra in den i head-koden och publicera sajten.'; },
+      works: function (p, ago, b) { return 'Det fungerar: ett besök på <b>' + p + '</b> registrerades ' + (ago < 5 ? 'nyss' : 'för ' + ago + ' s sedan') + (b ? ' (' + b + ')' : '') + '. Datan syns direkt i översikten.'; },
+      refused: function (r, h) { return 'Besök kommer från <b>' + r + '</b>, men den här miljön är inställd för <b>' + h + '</b>. Ändra domänen i inställningarna, eller lägg till adressen som en egen miljö.'; },
+      timeout: 'Inget besök på 3 minuter. Kontrollera att sajten är publicerad, öppna den i ett vanligt (inte privat) fönster utan annonsblockerare för sajten, och låt fliken vara synlig i några sekunder.'
+    } : {
+      testing: 'Testing…', again: 'Test again', copied: 'Copied',
+      looking: function (h) { return 'Looking for the snippet on ' + h + '…'; },
+      waiting: function (s, h) { return 'Waiting for a visit. <a href="' + s + '" target="_blank" rel="noopener">Open ' + h + '</a> in a new tab and click around.'; },
+      noLoad: function (h, e) { return 'Couldn’t load ' + h + (e ? ' (' + e + ')' : '') + '. The live test below still works.'; },
+      found: function (h, head) { return 'Snippet found on ' + h + (head ? ', in the head' : '') + '.'; },
+      otherKey: function (h, k) { return 'A Probe snippet is on ' + h + ', but with another site key' + (k ? ' (' + k + ')' : '') + '. Replace it with the one above.'; },
+      missing: function (h) { return 'The snippet isn’t in the published HTML of ' + h + ' yet. Paste it into the head code and publish the site.'; },
+      works: function (p, ago, b) { return 'It works: a visit to <b>' + p + '</b> was recorded ' + (ago < 5 ? 'just now' : ago + ' s ago') + (b ? ' (' + b + ')' : '') + '. Data appears on the dashboard right away.'; },
+      refused: function (r, h) { return 'Visits are arriving from <b>' + r + '</b>, but this environment is set up for <b>' + h + '</b>. Change the domain in settings, or add that address as its own environment.'; },
+      timeout: 'No visit in 3 minutes. Check that the site is published, open it in a normal (not private) window with ad blockers off for it, and keep the tab visible for a few seconds.'
+    };
+    window.__probeT = T;
+    function set(box, step, state, html) {
+      var li = box.querySelector('[data-step="' + step + '"]'); if (!li) return;
+      li.setAttribute('data-state', state); if (html != null) li.querySelector('.z-it-text').innerHTML = html;
+    }
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-install-test]');
+      if (!b || b.disabled) return;
+      var box = b.closest('.z-form').querySelector('.z-install-test'), base = b.getAttribute('data-install-test'), site = b.getAttribute('data-site-url');
+      var since = Date.now() - 5000, host = esc(site.replace(/^https?:\/\//, '').replace(/\/$/, '')), started = Date.now(), timer = 0;
+      box.hidden = false; b.disabled = true; b.textContent = T.testing;
+      set(box, 'html', 'busy', T.looking(host));
+      set(box, 'hit', 'wait', T.waiting(esc(site), host));
+      function done() { clearTimeout(timer); b.disabled = false; b.textContent = T.again; }
+      function poll(first) {
+        fetch(base + '?since=' + since + (first ? '&html=1' : ''), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+          if (first) {
+            var h = d.html;
+            if (!h || h.error) set(box, 'html', 'warn', T.noLoad(host, h && h.error ? esc(h.error) : ''));
+            else if (h.found && h.keyMatches) set(box, 'html', 'ok', T.found(host, h.inHead));
+            else if (h.found) set(box, 'html', 'bad', T.otherKey(host, h.otherKeys[0] ? esc(h.otherKeys[0]) : ''));
+            else set(box, 'html', 'bad', T.missing(host));
+          }
+          if (d.hit) {
+            var ago = Math.max(0, Math.round((Date.now() - d.hit.ts) / 1000));
+            set(box, 'hit', 'ok', T.works(esc(d.hit.path), ago, d.hit.browser ? esc(d.hit.browser) : ''));
+            return done();
+          }
+          if (d.refused) { set(box, 'hit', 'bad', T.refused(esc(d.refused), host)); return done(); }
+          if (Date.now() - started > 180e3) { set(box, 'hit', 'warn', T.timeout); return done(); }
+          timer = setTimeout(function () { poll(false); }, 3000);
+        }).catch(function () { timer = setTimeout(function () { poll(false); }, 5000); });
+      }
+      poll(true);
+    });
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('[data-copy]');
+      if (!b) return;
+      navigator.clipboard.writeText(b.getAttribute('data-copy')).then(function () { var t = b.textContent; b.textContent = T.copied; setTimeout(function () { b.textContent = t; }, 1500); });
+    });
+  })();
 </script>

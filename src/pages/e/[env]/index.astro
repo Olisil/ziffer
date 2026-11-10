@@ -43,7 +43,7 @@ const refTotal = data ? data.referrers.reduce((a, d) => a + d.n, 0) : 0;
     {data && empty && (
       <section class="z-card">
         <div class="z-card-head"><span class="z-card-title">Waiting for the first visit on {env.domain}</span><span class="z-card-hint">Usually seconds after you publish</span></div>
-        <InstallSnippet siteKey={env.site_key} domain={env.domain} />
+        <InstallSnippet siteKey={env.site_key} domain={env.domain} envId={env.id} />
       </section>
     )}
 

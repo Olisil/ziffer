@@ -11,7 +11,7 @@ import type { APIContext, AstroGlobal } from 'astro';
 import { db, ownerId } from './server';
 
 export type Plan = 'owner' | 'pro_free' | 'pro' | 'basic';
-export type User = { id: string; email: string | null; email_verified: number; name: string | null; image_url: string | null; plan: Plan; notify: string | null; created: number; last_seen: number | null; synced: number | null };
+export type User = { id: string; email: string | null; email_verified: number; name: string | null; image_url: string | null; plan: Plan; notify: string | null; created: number; last_seen: number | null; synced: number | null; lang?: string | null };
 export type Access = 'pro' | 'basic';
 export type Member = { project_id: string; user_id: string; access: Access; role: 'owner' | 'member'; created: number; email: string | null; name: string | null; image_url: string | null; plan: Plan };
 
