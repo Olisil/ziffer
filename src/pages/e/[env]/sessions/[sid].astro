@@ -42,7 +42,7 @@ const chapters = views.map((v, i) => {
   const W = snap?.dw || v.dw || (bucket(v.vw) === 'mobile' ? 390 : 1280);
   const H = Math.min(snap?.dh || v.dh || 3000, 30000);
   const viewW = snap?.vw || v.vw || W;
-  const viewH = Math.min(snap?.vh || v.vh || 800, 760);
+  const viewH = Math.min(snap?.vh || v.vh || 800, 1600);
   const clicks = v.clicks.map((c) => ({ ...c, n: ++n }));
   const pts = clicks.map((c) => [Math.round(c.xr * W), Math.round(c.dh ? (c.y * H) / c.dh : c.y), c.rage, c.dead, c.n] as [number, number, number, number, number]);
   // What was on screen: the deepest scroll, and never above a spot that was clicked.

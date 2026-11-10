@@ -202,8 +202,13 @@ function mount(root: HTMLElement) {
 
   const fit = () => {
     const avail = root.clientWidth - 2, s = Math.min(1, avail / p.viewW);
+    // A scaled-down desktop page would leave a low strip: give the window more of the page, up to about
+    // 70% of the screen, but never so tall that full-height sections stretch far beyond what the visitor saw.
+    const target = Math.max(420, Math.min(720, window.innerHeight * 0.7));
+    const h = Math.round(Math.max(p.viewH, Math.min(target / s, p.viewH * 1.6)));
+    stage.style.height = `${h}px`;
     stage.style.transform = `scale(${s})`;
-    stage.style.marginBottom = `${p.viewH * s - p.viewH}px`;
+    stage.style.marginBottom = `${h * s - h}px`;
     stage.style.marginRight = `${p.viewW * s - p.viewW}px`;
     stage.style.marginLeft = `${Math.max(0, (avail - p.viewW * s) / 2)}px`;
   };
