@@ -16,12 +16,12 @@ export const SV: Record<string, string> = {
   // New project / environment
   'New project': 'Nytt projekt', 'Create a project': 'Skapa ett projekt',
   'A project groups up to four places you measure — a website, a virtual tour, later games and VR — and the people who work on them.': 'Ett projekt samlar upp till fyra platser du mäter – en webbplats, en virtuell visning, senare spel och VR – och personerna som arbetar med dem.',
-  'Project name': 'Projektnamn', 'Usually the client or brand, e.g. Nassau.': 'Oftast kunden eller varumärket, t.ex. Nassau.', 'Environment': 'Miljö', 'Environments': 'Miljöer',
+  'Project name': 'Projektnamn', 'Usually the client or brand.': 'Oftast kunden eller varumärket.', 'Environment': 'Miljö', 'Environments': 'Miljöer',
   'A website with the Probe snippet — page views, heatmaps, sessions.': 'En webbplats med Probe-koden – sidvisningar, värmekartor, sessioner.',
   'An Intus tour — rooms, walking paths, floor-plan heatmaps.': 'En Intus-visning – rum, gångvägar, värmekartor på planritningen.',
   'Name': 'Namn', 'Domain': 'Domän', "For Web: the site's address. www and subdomains are included.": 'För webb: sajtens adress. www och underdomäner ingår.',
   'The site is reserved for your project for 7 days and confirmed as soon as the first visit arrives through its snippet.': 'Sajten reserveras för ditt projekt i 7 dagar och bekräftas så fort det första besöket kommer in via koden.',
-  'Create project': 'Skapa projekt', 'nassau.se, or Storgatan 12': 'nassau.se, eller Storgatan 12', 'Add an environment': 'Lägg till en miljö', 'Add environment': 'Lägg till miljö',
+  'Create project': 'Skapa projekt', 'example.se, or Company homepage': 'example.se, eller Företagets webbplats', 'Company': 'Företag', 'Add an environment': 'Lägg till en miljö', 'Add environment': 'Lägg till miljö',
   'Optional for tours.': 'Valfritt för visningar.',
   // Settings (account)
   'Account': 'Konto', 'Plan & billing': 'Plan och betalning', 'Security': 'Säkerhet', 'Edit': 'Redigera', 'Change name': 'Byt namn', 'Email': 'E-post', 'Verified': 'Verifierad',

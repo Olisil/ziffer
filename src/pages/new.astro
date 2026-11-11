@@ -55,8 +55,8 @@ if (Astro.request.method === 'POST' && allowed) {
     ) : (
       <form method="post" class="z-card z-form" style="max-width:none">
         {error && <ConflictNotice message={error} conflict={conflict} />}
-        <label class="z-field">Project name <small>Usually the client or brand, e.g. Nassau.</small>
-          <input class="z-input" name="project" required maxlength="80" placeholder="Nassau" value={raw.project} autofocus />
+        <label class="z-field">Project name <small>Usually the client or brand.</small>
+          <input class="z-input" name="project" required maxlength="80" placeholder="Company" value={raw.project} autofocus />
         </label>
         <EnvironmentFields values={raw} />
         <p class="muted" style="margin:0;font-size:12.5px">The site is reserved for your project for 7 days and confirmed as soon as the first visit arrives through its snippet.</p>
