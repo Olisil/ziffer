@@ -11,6 +11,8 @@ import { actorFor, answerRequest, can, deleteProject, invite, leave, remove, set
 import { money, seatPrice } from '../../../lib/stripe';
 import { mailEnabled } from '../../../lib/mail';
 import { appOrigin } from '../../../lib/notify';
+import AgentMark from '../../../components/AgentMark.astro';
+import { createKey, listKeys, revokeKey, MAX_KEYS } from '../../../lib/agents';
 
 const owner = ownerId(Astro);
 if (!owner) return Astro.redirect(url('sign-in'));
@@ -22,6 +24,7 @@ const here = (extra = '') => Astro.redirect(url(`p/${pid}/settings${extra}`));
 const ok = (m: string) => `?ok=${encodeURIComponent(m)}`;
 let flash = Astro.url.searchParams.get('ok') || '';
 let error = '';
+let newKey = '';
 
 if (Astro.request.method === 'POST') {
   const f = await Astro.request.formData();
@@ -46,6 +49,11 @@ if (Astro.request.method === 'POST') {
       if (name) await db().prepare('UPDATE projects SET name = ? WHERE id = ?').bind(name, pid).run();
       return here(ok('Saved'));
     }
+    if (action === 'agent-key' || action === 'agent-revoke') {
+      if (a.access !== 'pro') throw new Error('Only Pro members can manage agent keys.');
+      if (action === 'agent-revoke') { await revokeKey(pid, String(f.get('key'))); return here(`${ok('Agent key removed')}#agents`); }
+      newKey = await createKey(pid, user.id, String(f.get('name') || '')); // shown once, on this response only
+    }
     if (action === 'delete') {
       const cur = await db().prepare('SELECT name FROM projects WHERE id = ?').bind(pid).first<{ name: string }>();
       if (String(f.get('confirm') || '').trim() !== cur?.name) throw new Error(`Type the project name “${cur?.name}” to delete it.`);
@@ -64,6 +72,10 @@ const [members, envs, invites, requests, a, price] = await Promise.all([
   actorFor(user, pid), seatPrice(),
 ]);
 const billableSeats = members.filter(billable).length;
+const agentKeys = await listKeys(pid).catch(() => []);
+if (newKey) Astro.response.headers.set('Cache-Control', 'no-store');
+const mcpUrl = new URL(url('api/mcp'), appOrigin(Astro.request)).href;
+const ago = (t: number) => { const m = Math.max(1, Math.round((Date.now() - t) / 60000)); return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join('');
 const inviteBase = `${appOrigin(Astro.request)}${url('invite/')}`;
 const site = envs.find((e) => e.kind === 'web' && e.domain);
@@ -174,6 +186,68 @@ const fromEnv = envs.find((e) => e.id === Astro.url.searchParams.get('from')) ??
 
 
               </section>
+    <h2 class="z-set-h z-agent-h" id="agents"><AgentMark size={15} />Agents</h2>
+    <p class="muted z-set-intro">Let Claude or another AI agent read this project’s statistics and answer questions about them. Agents can only read: they can’t change or delete anything, and they never see page snapshots.</p>
+    <section class="z-card z-agent-card">
+      <ul class="z-agent-asks" aria-label="Examples of questions">
+        <li>“Why did visits drop last week?”</li>
+        <li>“Which pages lose people before the fold?”</li>
+        <li>“Write this month’s report for the client.”</li>
+      </ul>
+
+      {newKey && (
+        <div class="z-agent-new" role="status">
+          <b>Your new key</b>
+          <p class="muted z-small" style="margin:0">Copy it now. It’s shown this once and can’t be read again; if it’s lost, remove the key and create a new one.</p>
+          <div class="z-agent-line"><code class="z-code" data-no-i18n>{newKey}</code><button class="z-btn z-btn-secondary" type="button" data-copy={newKey}>Copy</button></div>
+          <span class="z-agent-label">Claude Code</span>
+          <div class="z-agent-line"><code class="z-code" data-no-i18n>{`claude mcp add --transport http probe ${mcpUrl} --header "Authorization: Bearer ${newKey}"`}</code><button class="z-btn z-btn-secondary" type="button" data-copy={`claude mcp add --transport http probe ${mcpUrl} --header "Authorization: Bearer ${newKey}"`}>Copy</button></div>
+          <span class="z-agent-label">Apps that only take an address</span>
+          <div class="z-agent-line"><code class="z-code" data-no-i18n>{`${mcpUrl}/${newKey}`}</code><button class="z-btn z-btn-secondary" type="button" data-copy={`${mcpUrl}/${newKey}`}>Copy</button></div>
+          <p class="muted z-small" style="margin:0">Paste the address where the app asks for an MCP server or a custom connector. Treat it like a password: anyone who has it can read this project’s statistics.</p>
+        </div>
+      )}
+
+      <div>
+        <span class="z-agent-label">Address</span>
+        <div class="z-agent-line"><code class="z-code" data-no-i18n>{mcpUrl}</code><button class="z-btn z-btn-secondary" type="button" data-copy={mcpUrl}>Copy</button></div>
+        <p class="muted z-small" style="margin:6px 0 0">An MCP server. The agent sends its key as <code data-no-i18n>Authorization: Bearer …</code></p>
+      </div>
+
+      {agentKeys.length > 0 && (
+        <ul class="z-agent-keys">
+          {agentKeys.map((k) => (
+            <li>
+              <span class:list={['z-agent-dot', { fresh: !!k.last_used && Date.now() - k.last_used < 864e5 }]}></span>
+              <span class="z-agent-key-id"><b data-no-i18n>{k.name}</b><span class="muted" data-no-i18n>pk_…{k.hint}</span></span>
+              <span class="muted z-agent-key-meta">{k.last_used ? `Last read ${ago(k.last_used)} · ${fmt.int(k.calls)} questions` : 'Not used yet'}</span>
+              <span class="muted z-agent-key-meta">Created {fmt.date(k.created)}{k.by_name || k.by_email ? <span data-no-i18n> · {k.by_name || k.by_email}</span> : ''}</span>
+              {a.access === 'pro' && <form method="post"><input type="hidden" name="action" value="agent-revoke" /><input type="hidden" name="key" value={k.id} /><button class="z-link danger" type="submit" title="The agent using this key loses access at once">Remove</button></form>}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {a.access === 'pro' ? (
+        agentKeys.length < MAX_KEYS
+          ? <form method="post" action="#agents" class="z-agent-create"><input type="hidden" name="action" value="agent-key" /><input class="z-input" name="name" maxlength="60" placeholder="Name, e.g. Claude or Monthly report" aria-label="Key name" required /><button class="z-btn z-btn-primary" type="submit">Create key</button></form>
+          : <p class="muted z-small" style="margin:0">This project has its {MAX_KEYS} keys. Remove one to create another.</p>
+      ) : <p class="muted z-small" style="margin:0">Pro members create and remove agent keys.</p>}
+
+      <details class="z-agent-what">
+        <summary class="z-link">What an agent can read</summary>
+        <ul class="muted">
+          <li>Key figures for each website, with the change from the period before</li>
+          <li>Pages: views, time, scroll depth, where visits start and end</li>
+          <li>One page in detail: the fold, scroll reach and the most clicked elements</li>
+          <li>Anonymous sessions and the pages they went through</li>
+          <li>AI traffic: people sent by AI assistants, and AI agents reading the site</li>
+          <li>Virtual tours: visits, time, rooms and routes</li>
+        </ul>
+        <p class="muted z-small" style="margin:8px 0 0">An agent you connect sends what it reads to its AI provider. All of it is anonymous statistics; no names, IP addresses or page content.</p>
+      </details>
+    </section>
+
     <h2 class="z-set-h">Leave or delete</h2>
     <section class="z-card">
                 <div class="z-set-project-foot" style="border-top:0;padding-top:0">
@@ -192,3 +266,10 @@ const fromEnv = envs.find((e) => e.id === Astro.url.searchParams.get('from')) ??
     </section>
   </main>
 </App>
+<script is:inline>
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-copy]');
+    if (!b || !navigator.clipboard) return;
+    navigator.clipboard.writeText(b.getAttribute('data-copy')).then(function () { var t = b.textContent; b.textContent = document.documentElement.lang === 'sv' ? 'Kopierat' : 'Copied'; setTimeout(function () { b.textContent = t; }, 1500); });
+  });
+</script>

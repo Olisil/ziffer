@@ -922,3 +922,46 @@ html.theme-dark .z-site-ico .lt:has(+ .dk) { display: none; }
 .z-tplan-replay { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 10px; background: var(--_theme---surface-raised); font-size: 13px; }
 .z-tplan-replay[hidden] { display: none; }
 @media (max-width: 767px) { .z-tplan-stage { height: 58vh; } .z-tour-remove { opacity: 1; } }
+
+/* ---------- Agents (MCP access) ---------- */
+:root { --z-agent: #8a6cff; }
+.theme-dark { --z-agent: #a995ff; }
+.z-agent-mark { color: var(--z-agent); flex-shrink: 0; }
+.z-agent-pulse { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 99px; font-size: 12px; font-weight: 500; color: var(--_theme---text-muted); text-decoration: none; border: 1px dashed var(--_theme---border); transition: color .15s, border-color .15s; white-space: nowrap; }
+.z-agent-pulse .z-agent-mark { opacity: .55; transition: opacity .15s, transform .4s; }
+.z-agent-pulse:hover { color: var(--_theme---text); border-color: color-mix(in srgb, var(--z-agent) 55%, transparent); }
+.z-agent-pulse:hover .z-agent-mark { opacity: 1; transform: rotate(90deg); }
+.z-agent-pulse.on { border-style: solid; border-color: color-mix(in srgb, var(--z-agent) 35%, transparent); }
+.z-agent-pulse.on .z-agent-mark { opacity: 1; }
+.z-agent-pulse.fresh { color: var(--_theme---text); background: color-mix(in srgb, var(--z-agent) 10%, transparent); }
+.z-agent-pulse.fresh .z-agent-mark { animation: z-agent-twinkle 3.2s ease-in-out infinite; }
+@keyframes z-agent-twinkle { 0%, 100% { transform: scale(1) rotate(0); opacity: 1; } 50% { transform: scale(.72) rotate(45deg); opacity: .6; } }
+@media (prefers-reduced-motion: reduce) { .z-agent-pulse.fresh .z-agent-mark { animation: none; } .z-agent-pulse:hover .z-agent-mark { transform: none; } }
+.z-agent-h { display: flex; align-items: center; gap: 8px; scroll-margin-top: 90px; }
+.z-agent-card { display: flex; flex-direction: column; gap: 18px; border-color: color-mix(in srgb, var(--z-agent) 28%, var(--_theme---border)); background-image: radial-gradient(520px 160px at 100% 0, color-mix(in srgb, var(--z-agent) 9%, transparent), transparent 70%); }
+.z-agent-asks { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.z-agent-asks li { padding: 6px 12px; border-radius: 14px 14px 14px 4px; background: color-mix(in srgb, var(--z-agent) 11%, transparent); font-size: 13px; }
+.z-agent-label { display: block; font-size: 12px; font-weight: 500; color: var(--_theme---text-muted); margin-bottom: 6px; }
+.z-agent-line { display: flex; gap: 8px; align-items: stretch; }
+.z-agent-line .z-code { padding: 9px 12px; font-size: 12.5px; flex: 1; min-width: 0; }
+.z-agent-line .z-btn { flex-shrink: 0; align-self: flex-start; }
+.z-agent-new { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--z-agent) 45%, transparent); background: color-mix(in srgb, var(--z-agent) 7%, transparent); }
+.z-agent-new .z-agent-label { margin: 4px 0 -4px; }
+.z-agent-keys { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.z-agent-keys li { display: grid; grid-template-columns: 10px minmax(120px, 1.1fr) 1.2fr 1.2fr auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--_theme---border); font-size: 13px; }
+.z-agent-keys li:last-child { border-bottom: 1px solid var(--_theme---border); }
+.z-agent-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--_theme---border); }
+.z-agent-dot.fresh { background: var(--z-agent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--z-agent) 22%, transparent); }
+.z-agent-key-id { display: flex; flex-direction: column; min-width: 0; }
+.z-agent-key-id .muted { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.z-agent-key-meta { font-size: 12.5px; }
+.z-agent-create { display: flex; gap: 8px; }
+.z-agent-create .z-input { flex: 1; max-width: 380px; }
+.z-agent-what ul { margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.7; }
+.z-agent-what summary { cursor: pointer; }
+@media (max-width: 767px) {
+  .z-agent-keys li { grid-template-columns: 10px 1fr auto; }
+  .z-agent-key-meta { grid-column: 2 / -1; }
+  .z-agent-line { flex-direction: column; }
+  .z-agent-create { flex-direction: column; } .z-agent-create .z-input { max-width: none; }
+}

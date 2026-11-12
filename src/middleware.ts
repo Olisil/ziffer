@@ -5,8 +5,8 @@ import { APP_HOME, BASE } from './lib/server';
 import { LANG_COOKIE, pickLang, translateResponse } from './lib/i18n';
 
 // Public, cookieless tracker endpoints never touch Clerk.
-// (and Stripe's webhook, which is verified by its signature instead)
-const isTracker = (p: string) => p === `${BASE}/z.js` || p === `${BASE}/api/collect` || p === `${BASE}/api/snap` || p === `${BASE}/favicon.svg` || p === `${BASE}/api/stripe/webhook` || p.startsWith(`${BASE}/api/tour/`);
+// (and Stripe’s webhook, which is verified by its signature, and the MCP endpoint, which takes an agent key)
+const isTracker = (p: string) => p === `${BASE}/z.js` || p === `${BASE}/api/collect` || p === `${BASE}/api/snap` || p === `${BASE}/favicon.svg` || p === `${BASE}/api/stripe/webhook` || p.startsWith(`${BASE}/api/tour/`) || p === `${BASE}/api/mcp` || p.startsWith(`${BASE}/api/mcp/`);
 const PUBLIC = [`${BASE}/sign-in`, `${BASE}/sign-up`];
 const isPublic = (p: string) => PUBLIC.some((x) => p === x || p.startsWith(x + '/'));
 

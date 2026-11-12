@@ -1,0 +1,12 @@
+---
+// A small marker on a project: whether AI agents can read it, and when one last did.
+import AgentMark from './AgentMark.astro';
+import { url } from '../lib/server';
+interface Props { projectId: string; pulse?: { keys: number; last: number | null } | null }
+const { projectId, pulse } = Astro.props;
+const ago = (t: number) => { const m = Math.max(1, Math.round((Date.now() - t) / 60000)); return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+const fresh = !!pulse?.last && Date.now() - pulse.last < 864e5;
+const text = pulse?.last ? `Agent read ${ago(pulse.last)}` : pulse?.keys ? 'Agent connected' : 'Agents';
+const title = pulse?.keys ? 'An AI agent can read this project’s statistics. Manage it in project settings.' : 'Let Claude or another AI agent read this project’s statistics.';
+---
+<a class:list={['z-agent-pulse', { on: !!pulse?.keys, fresh }]} href={url(`p/${projectId}/settings#agents`)} title={title}><AgentMark size={12} /><span>{text}</span></a>

@@ -9,6 +9,8 @@ import { fmt, isDevUser } from '../lib/page';
 import { listEnvironments, listProjects, ownerId, rangeOf, url } from '../lib/server';
 import { overview } from '../lib/stats';
 import { tourOverview } from '../lib/tours';
+import AgentPulse from '../components/AgentPulse.astro';
+import { agentPulse } from '../lib/agents';
 import { auditSummary } from '../lib/audit';
 import { db } from '../lib/server';
 
@@ -17,6 +19,7 @@ if (!owner) return Astro.redirect(url('sign-in'));
 const projects = await listProjects(owner);
 if (!projects.length) return Astro.redirect(url('new'));
 const groups = await Promise.all(projects.map(async (p) => ({ p, envs: await listEnvironments(p.id) })));
+const pulses = await agentPulse(projects.map((p) => p.id));
 const envs = groups.flatMap((g) => g.envs);
 if (!envs.length) return Astro.redirect(url(`p/${projects[0].id}/environments/new`));
 const r = rangeOf(Astro.url);
@@ -56,6 +59,7 @@ const initial = (s: string) => s.trim().charAt(0).toUpperCase() || '?';
           <SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={28} />
           <h2>{p.name}</h2>
           <span class="muted">{envs.length} {envs.length === 1 ? 'environment' : 'environments'}</span>
+          <AgentPulse projectId={p.id} pulse={pulses.get(p.id)} />
           <span class="z-spacer"></span>
           <a class="z-link" href={url(`p/${p.id}/environments/new`)}>+ Add environment</a>
         </div>
