@@ -65,11 +65,11 @@ if (projects.length) {
   )}
   {env && (
     <details class="z-scope env">
-      <summary>{env.kind === 'web' ? <SiteIcon env={env} name={env.name} size={20} /> : <span class={`z-dot ${env.kind}`}></span>}{env.name} · {kindLabel(env.kind)}</summary>
+      <summary><SiteIcon env={env} name={env.name} size={20} />{env.name} · {kindLabel(env.kind)}</summary>
       <div class="z-scope-menu" role="menu">
         <div class="z-menu-label">Environments in {project?.name}</div>
         {environments.map((e) => (
-          <a href={url(`e/${e.id}${q}`)} aria-current={e.id === env.id ? 'true' : undefined}>{e.kind === 'web' ? <SiteIcon env={e} name={e.name} size={20} /> : <span class={`z-dot ${e.kind}`}></span>}{e.name} · {kindLabel(e.kind)}</a>
+          <a href={url(`e/${e.id}${q}`)} aria-current={e.id === env.id ? 'true' : undefined}><SiteIcon env={e} name={e.name} size={20} />{e.name} · {kindLabel(e.kind)}</a>
         ))}
         <div class="z-menu-sep"></div>
         <a href={url(`p/${env.project_id}/environments/new`)}>+ Add environment</a>
