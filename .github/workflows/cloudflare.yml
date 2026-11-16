@@ -1,0 +1,34 @@
+# Deploys a copy of Probe to Nassau's own Cloudflare account, with the database and files locked to the EU.
+# Started by hand (Actions → Deploy to Cloudflare → Run workflow); it never runs on its own.
+# The live app on Webflow Cloud is not touched by this.
+#
+# Needs, under Settings → Secrets and variables → Actions:
+#   Secrets:   CLOUDFLARE_API_TOKEN (Workers, D1, R2 and KV edit), CLOUDFLARE_ACCOUNT_ID
+#   Variables: PUBLIC_CLERK_PUBLISHABLE_KEY (the same publishable key the live app uses)
+name: Deploy to Cloudflare (EU)
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      PROBE_TARGET: cloudflare
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Make sure the EU database, file store and session store exist
+        run: node cloudflare/setup.mjs
+      - name: Build
+        run: npm run build
+      - name: Bring the database up to date
+        run: npx wrangler d1 migrations apply DB --remote
+      - name: Deploy
+        run: npx wrangler deploy

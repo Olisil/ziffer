@@ -3,8 +3,11 @@ import cloudflare from '@astrojs/cloudflare';
 import clerk from '@clerk/astro';
 
 // Webflow Cloud sets `base` and `build.assetsPrefix` from the environment's mount path
-// (/app on the Ziffer site) at build time — don't set them here.
+// (/app on the Probe site) at build time — don't set them here.
+// The build for Nassau's own Cloudflare account (PROBE_TARGET=cloudflare) keeps the same /app path.
+const own = process.env.PROBE_TARGET === 'cloudflare';
 export default defineConfig({
+  ...(own ? { base: '/app' } : {}),
   output: 'server',
   devToolbar: { enabled: false },
   // Astro's built-in check would also reject the cross-site tracker beacons (text/plain POSTs),
