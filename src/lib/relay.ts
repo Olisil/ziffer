@@ -31,7 +31,7 @@ export function visitorOf(req: Request) {
   if (relayed(req)) return { ip: req.headers.get('x-probe-ip') || '', country: (req.headers.get('x-probe-country') || '').slice(0, 2) || null };
   return {
     ip: req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || '',
-    country: ((req as any).cf?.country as string | undefined)?.slice(0, 2) || null,
+    country: (((req as any).cf?.country as string | undefined) || req.headers.get('CF-IPCountry') || '').slice(0, 2) || null,
   };
 }
 

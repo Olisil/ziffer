@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 import type { MiddlewareHandler } from 'astro';
 import { APP_HOME, BASE } from './lib/server';
 import { LANG_COOKIE, pickLang, translateResponse } from './lib/i18n';
-import { relay, shouldRelay } from './lib/relay';
+import { relay, relayed, shouldRelay } from './lib/relay';
 
 // Public, cookieless tracker endpoints never touch Clerk.
 // (and Stripe’s webhook, which is verified by its signature, and the MCP endpoint, which takes an agent key)
@@ -65,8 +65,11 @@ const routed: MiddlewareHandler = (context, next) => {
   return withClerk(context, next);
 };
 
-export const onRequest: MiddlewareHandler = (context, next) => {
+export const onRequest: MiddlewareHandler = async (context, next) => {
   // After the move to the EU deployment this one only hands requests on (see lib/relay.ts).
   if (shouldRelay(context.request, context.url)) return relay(context.request, context.url);
-  return routed(context, () => localized(context, next));
+  const res = await routed(context, () => localized(context, next));
+  // Lets the public deployment's operator see that the shared key matched (the visitor details were trusted).
+  if (relayed(context.request)) { try { res.headers.set('x-probe-relay-ok', '1'); } catch { /* fixed headers */ } }
+  return res;
 };
