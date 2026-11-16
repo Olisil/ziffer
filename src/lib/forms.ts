@@ -1,4 +1,5 @@
-import { cleanDomain, db, id, MAX_ENVIRONMENTS } from './server';
+import { cleanDomain, db, id } from './server';
+import { planState } from './plans';
 import { conflictMessage, domainConflict, type Conflict } from './claims';
 
 export type EnvInput = { kind: 'web' | 'tour'; name: string; domain: string | null };
@@ -19,7 +20,9 @@ export function readEnvForm(form: FormData): { value?: EnvInput; error?: string;
 export async function checkNewEnvironment(projectId: string | null, v: EnvInput, userId: string): Promise<{ error: string; conflict?: Conflict } | null> {
   if (projectId) {
     const n = (await db().prepare('SELECT COUNT(*) AS n FROM environments WHERE project_id = ?').bind(projectId).first<{ n: number }>())?.n ?? 0;
-    if (n >= MAX_ENVIRONMENTS) return { error: `A project can have up to ${MAX_ENVIRONMENTS} environments. Remove one in its Settings, or create a new project.` };
+    const st = await planState(projectId);
+    if (n >= st.limits.environments) return { error: st.plan === 'studio' ? `A project can have up to ${st.limits.environments} environments. Remove one in its Settings, or create a new project.` : `The ${st.limits.name} plan has room for ${st.limits.environments} ${st.limits.environments === 1 ? 'environment' : 'environments'}. Choose a larger plan in the project’s settings to add more.` };
+    if (v.kind === 'tour' && !st.limits.tours) return { error: 'Virtual tours are part of the Starter and Studio plans. Choose a plan in the project’s settings first.' };
   }
   if (v.kind === 'web' && v.domain) {
     const c = await domainConflict(v.domain, userId);

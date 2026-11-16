@@ -20,6 +20,7 @@ export type Project = {
   id: string; owner_id: string; name: string; created: number;
   payer_id?: string | null; stripe_customer?: string | null; stripe_subscription?: string | null; billing_status?: string | null;
   access?: 'pro' | 'basic'; role?: 'owner' | 'member';
+  plan?: string | null; plan_since?: number | null; plan_comp?: number | null;
 };
 export type Environment = { id: string; project_id: string; kind: 'web' | 'tour'; name: string; domain: string | null; site_key: string; created: number; verified_at?: number | null; tours_base?: string | null };
 export const MAX_ENVIRONMENTS = 4;

@@ -7,7 +7,7 @@
 //   everyone        can leave a project (the project owner hands over ownership first)
 //   service owner   can do all of the above in any project
 import { db, id } from './server';
-import { billable, isServiceOwner, membersOf, type Access, type User } from './users';
+import { isServiceOwner, membersOf, type Access, type User } from './users';
 import { appOrigin, esc, notify, projectRecipients } from './notify';
 import { layout, sendMail } from './mail';
 import { bucket } from './snapshots';
@@ -37,13 +37,6 @@ export const can = {
 
 const projectName = async (pid: string) => (await db().prepare('SELECT name FROM projects WHERE id = ?').bind(pid).first<{ name: string }>())?.name ?? 'a project';
 
-/** Seat changes cost the project money: the project owner hears about every change in paid seats. */
-async function tellSeats(projectId: string, what: string, origin: string) {
-  await notify(await projectRecipients(projectId, 'owner'), {
-    kind: 'billing', projectId, title: `Pro seats changed in ${await projectName(projectId)}`,
-    lines: [what, 'Pro seats are billed after each full month, by the days they were active.'], link: '/app/settings?tab=plan',
-  }, origin);
-}
 
 export async function invite(a: Actor, email: string, access: Access, req: Request) {
   if (!can.invite(a)) throw new Error('Only Pro members can invite people.');
@@ -92,7 +85,6 @@ export async function accept(user: User, token: string, req: Request) {
       kind: 'members', projectId: inv.project_id, title: `${user.name || user.email} joined ${name}`,
       lines: [`${esc(user.name || user.email || '')} accepted the invitation and has <b>${inv.access === 'pro' ? 'Pro' : 'Basic'}</b> access.`], link: `/app/p/${inv.project_id}/settings`,
     }, origin);
-    if (billable({ access: inv.access ?? 'basic', plan: user.plan })) await tellSeats(inv.project_id, `${esc(user.name || user.email || '')} joined as a Pro member.`, origin);
   }
   return inv.project_id;
 }
@@ -103,7 +95,6 @@ export async function setAccess(a: Actor, userId: string, access: Access, req: R
   if (!target) throw new Error('Not a member.');
   if (target.role === 'owner' && access === 'basic') throw new Error('The project owner always has Pro access.');
   await db().prepare('UPDATE project_members SET access = ? WHERE project_id = ? AND user_id = ?').bind(access, a.projectId, userId).run();
-  if (billable({ access, plan: target.plan }) !== billable(target)) await tellSeats(a.projectId, `${esc(target.name || target.email || '')} is now ${access === 'pro' ? 'Pro' : 'Basic'}.`, appOrigin(req));
 }
 
 export async function remove(a: Actor, userId: string, req: Request) {
@@ -113,7 +104,6 @@ export async function remove(a: Actor, userId: string, req: Request) {
   await db().prepare('DELETE FROM project_members WHERE project_id = ? AND user_id = ?').bind(a.projectId, userId).run();
   const origin = appOrigin(req);
   await notify([userId], { kind: 'members', projectId: a.projectId, title: `You were removed from ${await projectName(a.projectId)}`, lines: [`${esc(a.user.name || a.user.email || '')} removed you from the project.`] }, origin);
-  if (billable(target)) await tellSeats(a.projectId, `${esc(target.name || target.email || '')} was removed (one Pro seat fewer).`, origin);
 }
 
 export async function leave(a: Actor, req: Request) {
@@ -135,7 +125,7 @@ export async function transfer(a: Actor, userId: string, req: Request) {
     db().prepare('UPDATE projects SET owner_id = ?, payer_id = ? WHERE id = ?').bind(userId, userId, a.projectId),
   ]);
   await notify([userId], { kind: 'members', projectId: a.projectId, title: `You now own ${await projectName(a.projectId)}`,
-    lines: [`${esc(a.user.name || a.user.email || '')} handed the project over to you. You now handle its members and billing.`], link: '/app/settings?tab=plan', button: 'Check billing' }, appOrigin(req));
+    lines: [`${esc(a.user.name || a.user.email || '')} handed the project over to you. You now handle its members and billing.`], link: `/app/p/${a.projectId}/settings#plan`, button: 'Check the plan' }, appOrigin(req));
 }
 
 /** Deletes a project with everything in it (data, pictures, audits). */
@@ -176,7 +166,6 @@ export async function answerRequest(a: Actor, requestId: string, answer: 'pro' |
       .bind(a.projectId, u.id, answer, a.user.id, Date.now()).run();
     const origin = appOrigin(req), name = await projectName(a.projectId);
     await notify([u.id], { kind: 'members', projectId: a.projectId, title: `You now have access to ${name}`, lines: [`${esc(a.user.name || a.user.email || '')} accepted your request. You have <b>${answer === 'pro' ? 'Pro' : 'Basic'}</b> access.`], link: '/app/' }, origin);
-    if (billable({ access: answer, plan: u.plan })) await tellSeats(a.projectId, `${esc(r.email)} joined as a Pro member.`, origin);
   }
   await db().prepare("UPDATE access_requests SET status = 'approved' WHERE id = ?").bind(r.id).run();
 }

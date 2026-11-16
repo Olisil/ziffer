@@ -2,6 +2,7 @@
 // Agents only ever read. Page snapshots are never exposed, and nothing here can change or delete data.
 import { db, id, type Environment, type Project } from './server';
 import { billingLock } from './page';
+import { planState } from './plans';
 import { dashboard, heatmapData, sessionList, sessionSummary, type SessionFilters } from './stats';
 import { roomNames, tourInfo, tourList, tourStats, tourTotals, TOUR_RE } from './tours';
 
@@ -18,6 +19,7 @@ export const listKeys = async (projectId: string) =>
 
 /** Creates a key and returns it. This is the only time the key itself exists outside the agent that uses it. */
 export async function createKey(projectId: string, userId: string, name: string) {
+  if (!(await planState(projectId)).limits.agents) throw new Error('Agent access is part of the Starter and Studio plans.');
   const n = await db().prepare('SELECT COUNT(*) AS n FROM agent_keys WHERE project_id = ? AND revoked IS NULL').bind(projectId).first<{ n: number }>();
   if ((n?.n ?? 0) >= MAX_KEYS) throw new Error(`A project can have ${MAX_KEYS} agent keys. Remove one first.`);
   const key = `pk_${id(40)}`;
@@ -47,6 +49,7 @@ export async function callerFor(key: string | null): Promise<Caller> {
   if (!k) throw new AgentError(401, 'This agent key isn’t valid, or has been removed.');
   const project = await db().prepare('SELECT * FROM projects WHERE id = ?').bind(k.project_id).first<Project>();
   if (!project) throw new AgentError(401, 'This agent key isn’t valid, or has been removed.');
+  if (!(await planState(project.id)).limits.agents) throw new AgentError(403, 'Agent access is part of the Starter and Studio plans. This project is on Free.');
   const lock = await billingLock(project);
   if (lock) throw new AgentError(403, `Agent access is paused for this project: ${lock}`);
   return { key: k, project };

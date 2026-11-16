@@ -3,7 +3,8 @@ import App from '../../../../layouts/App.astro';
 import AppHeader from '../../../../components/AppHeader.astro';
 import EnvironmentFields from '../../../../components/EnvironmentFields.astro';
 import ConflictNotice from '../../../../components/ConflictNotice.astro';
-import { listEnvironments, listProjects, MAX_ENVIRONMENTS, ownerId, url } from '../../../../lib/server';
+import { listEnvironments, listProjects, ownerId, url } from '../../../../lib/server';
+import { planState } from '../../../../lib/plans';
 import { checkNewEnvironment, createEnvironment, readEnvForm } from '../../../../lib/forms';
 import { isDevUser } from '../../../../lib/page';
 import type { Conflict } from '../../../../lib/claims';
@@ -14,7 +15,9 @@ const projects = await listProjects(owner);
 const project = projects.find((p) => p.id === Astro.params.project);
 if (!project) return new Response('Not found', { status: 404 });
 const environments = await listEnvironments(project.id);
-const full = environments.length >= MAX_ENVIRONMENTS;
+const st = await planState(project.id);
+const MAX = st.limits.environments;
+const full = environments.length >= MAX;
 const readOnly = project.access !== 'pro';
 let error = '';
 let conflict: Conflict | undefined;
@@ -34,12 +37,12 @@ if (Astro.request.method === 'POST' && !full && !readOnly) {
   <AppHeader projects={projects} project={project} devUser={isDevUser()} />
   <main class="z-main" style="max-width:720px">
     <div>
-      <div class="z-eyebrow">{project.name} · {environments.length} of {MAX_ENVIRONMENTS} environments</div>
+      <div class="z-eyebrow">{project.name} · {environments.length} of {MAX} {MAX === 1 ? 'environment' : 'environments'} · {st.limits.name}</div>
       <h1 class="z-h1">Add an environment</h1>
       <p class="muted" style="margin:8px 0 0">Existing: {environments.map((e) => e.name).join(', ') || 'none yet'}.</p>
     </div>
     {readOnly ? <p class="z-card" style="margin:0">You have Basic (read-only) access to {project.name}, so you can’t add environments.</p>
-      : full ? <p class="z-card" style="margin:0">{project.name} already has {MAX_ENVIRONMENTS} environments, the most a project can have. Remove one in its Settings or create a new project.</p>
+      : full ? <p class="z-card" style="margin:0">{project.name} is on the {st.limits.name} plan, which has room for {MAX} {MAX === 1 ? 'environment' : 'environments'}. <a class="z-link" href={url(`p/${project.id}/settings#plan`)}>Choose a larger plan</a> to add more.</p>
       : (
         <form method="post" class="z-card z-form" style="max-width:none">
           {error && <ConflictNotice message={error} conflict={conflict} />}

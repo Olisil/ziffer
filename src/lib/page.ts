@@ -1,7 +1,8 @@
 import type { AstroGlobal } from 'astro';
 import { env as cfEnv } from 'cloudflare:workers';
 import { db, getScopedEnvironment, listEnvironments, listProjects, ownerId, url, type Environment, type Project } from './server';
-import { billable, isServiceOwner, me, type User } from './users';
+import { isServiceOwner, me, type User } from './users';
+import { planState } from './plans';
 
 export type EnvPage = {
   owner: string;
@@ -20,15 +21,13 @@ export type EnvPage = {
 
 export const BILLING_GRACE_DAYS = 14;
 
-/** Why a project is read-only for its Pro members, if it is: billable seats but no working payment after the grace period. */
+/** Why a project is read-only for its editors, if it is: a paid plan with no working payment after the grace period. */
 export async function billingLock(project: Project): Promise<string | null> {
   if (project.billing_status === 'active') return null;
-  const seats = (await db().prepare(
-    `SELECT m.access, COALESCE(u.plan, 'pro') AS plan FROM project_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.project_id = ?`,
-  ).bind(project.id).all<{ access: 'pro' | 'basic'; plan: any }>()).results.filter(billable).length;
-  if (!seats) return null;
-  if (project.billing_status === 'past_due') return 'The last payment for this project failed. Update the card in Settings → Plan & billing.';
-  if (Date.now() - project.created > BILLING_GRACE_DAYS * 864e5) return 'This project needs a payment method for its Pro members. Add one in Settings → Plan & billing.';
+  const st = await planState(project.id);
+  if (st.plan === 'free' || st.comped) return null;
+  if (project.billing_status === 'past_due') return 'The last payment for this project failed. Update the card in the project’s settings, under Plan.';
+  if (Date.now() - (st.since ?? project.created) > BILLING_GRACE_DAYS * 864e5) return `This project is on the ${st.limits.name} plan and needs a payment card. Add one in the project’s settings, under Plan.`;
   return null;
 }
 

@@ -1,12 +1,14 @@
 // Background work without a scheduler: run at most once an hour, piggybacking on incoming visits and
 // app page loads (via waitUntil, so nobody waits for it).
-//  - count billable Pro seats per project for today
+//  - note the plan each paying project is on today
 //  - after each full month, invoice the month that ended
+//  - remove detailed data older than each plan keeps it
 //  - daily traffic / rage-click spike checks
 //  - weekly email reports
 import { db } from './server';
-import { billable, prefsOf, type User } from './users';
-import { ensureWebhook, invoiceMonth, getSetting, seatPrice, setSetting, stripeEnabled } from './stripe';
+import { prefsOf, type User } from './users';
+import { effective, planPrices, prune } from './plans';
+import { ensureWebhook, invoiceMonth, getSetting, setSetting, stripeEnabled } from './stripe';
 import { notify, projectRecipients } from './notify';
 import { layout, mailEnabled, sendMail, esc } from './mail';
 
@@ -28,35 +30,34 @@ export async function runJobs(origin: string, force = false) {
   const out: Record<string, unknown> = {};
   out.seats = await countSeats().catch((e) => String(e));
   out.invoices = await monthlyInvoices().catch((e) => String(e));
+  out.pruned = await prune().catch((e) => String(e));
   out.spikes = await spikes(origin).catch((e) => String(e));
   out.weekly = await weeklyReports(origin).catch((e) => String(e));
   return out;
 }
 
-/** Today's billable Pro seats for every project (the highest count seen during the day is kept). */
+/** Today's plan for every project that pays for one (the larger plan wins if it changed during the day). */
 export async function countSeats() {
   const day = sthlmDay();
-  const rows = (await db().prepare(
-    `SELECT m.project_id, m.access, COALESCE(u.plan, 'pro') AS plan FROM project_members m LEFT JOIN users u ON u.id = m.user_id`,
-  ).all<{ project_id: string; access: 'pro' | 'basic'; plan: any }>()).results;
-  const per = new Map<string, number>();
-  for (const r of rows) if (billable(r)) per.set(r.project_id, (per.get(r.project_id) ?? 0) + 1);
-  const stmts = [...per].map(([pid, n]) =>
-    db().prepare('INSERT INTO billing_days (project_id, day, seats) VALUES (?, ?, ?) ON CONFLICT (project_id, day) DO UPDATE SET seats = MAX(seats, excluded.seats)').bind(pid, day, n));
+  const rows = (await db().prepare(`SELECT p.id, p.plan, p.plan_comp, u.plan AS owner_plan FROM projects p LEFT JOIN users u ON u.id = p.owner_id WHERE p.plan IN ('starter', 'studio')`)
+    .all<{ id: string; plan: string; plan_comp: number; owner_plan: string | null }>()).results;
+  const paying = rows.map((r) => ({ id: r.id, e: effective(r) })).filter((r) => !r.e.comped && r.e.plan !== 'free');
+  const stmts = paying.map((r) => db().prepare(
+    `INSERT INTO billing_days (project_id, day, seats, plan) VALUES (?1, ?2, 0, ?3)
+     ON CONFLICT (project_id, day) DO UPDATE SET plan = CASE WHEN billing_days.plan = 'studio' OR excluded.plan = 'studio' THEN 'studio' ELSE excluded.plan END`).bind(r.id, day, r.e.plan));
   for (let i = 0; i < stmts.length; i += 50) await db().batch(stmts.slice(i, i + 50));
-  return per.size;
+  return paying.length;
 }
 
 async function monthlyInvoices() {
   if (!stripeEnabled()) return 'stripe off';
-  const price = await seatPrice();
-  if (!price) return 'no price';
+  const prices = await planPrices();
   const now = new Date();
   const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15));
   const month = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}`;
-  const projects = (await db().prepare("SELECT DISTINCT project_id FROM billing_days WHERE substr(day, 1, 7) = ? AND seats > 0").bind(month).all<{ project_id: string }>()).results;
+  const projects = (await db().prepare("SELECT DISTINCT project_id FROM billing_days WHERE substr(day, 1, 7) = ? AND plan IS NOT NULL").bind(month).all<{ project_id: string }>()).results;
   let n = 0;
-  for (const p of projects.slice(0, 20)) { if (await invoiceMonth(p.project_id, month, price).catch((e) => { console.error('probe: invoice', e); return null; })) n++; }
+  for (const p of projects.slice(0, 20)) { if (await invoiceMonth(p.project_id, month, prices).catch((e) => { console.error('probe: invoice', e); return null; })) n++; }
   return n;
 }
 

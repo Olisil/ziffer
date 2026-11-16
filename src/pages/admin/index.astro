@@ -5,15 +5,16 @@ import Sparkline from '../../components/Sparkline.astro';
 import { requireOwner, serviceStats } from '../../lib/admin';
 import { fmt } from '../../lib/page';
 import { url } from '../../lib/server';
-import { money, seatPrice, stripeEnabled, stripeTestMode } from '../../lib/stripe';
+import { money, stripeEnabled, stripeTestMode } from '../../lib/stripe';
+import { planPrices } from '../../lib/plans';
 import { PLAN_LABEL } from '../../lib/users';
 import { mailEnabled } from '../../lib/mail';
 
 const user = await requireOwner(Astro);
 if (user instanceof Response) return user;
 const s = await serviceStats();
-const price = await seatPrice();
-const mrr = price ? s.seats * price.amount : null;
+const price = await planPrices();
+const mrr = s.paying.starter * price.starter + s.paying.studio * price.studio;
 const planOrder = ['owner', 'pro_free', 'pro', 'basic'] as const;
 const planTotal = planOrder.reduce((a, k) => a + (s.plans[k] ?? 0), 0) || 1;
 const max = Math.max(1, ...s.top.map((t) => t.sessions));
@@ -25,14 +26,14 @@ const icon: Record<string, string> = { user: '👤', project: '📁', version: '
   <section class="z-admin-status">
     <span class:list={['z-signal', stripeEnabled() ? 'engaged' : 'dead']}>Stripe {stripeEnabled() ? (stripeTestMode() ? 'connected · test mode' : 'connected · live') : 'not connected'}</span>
     <span class:list={['z-signal', mailEnabled() ? 'engaged' : 'dead']}>Email {mailEnabled() ? 'connected' : 'not connected'}</span>
-    <span class:list={['z-signal', price ? 'engaged' : 'dead']}>{price ? `Seat price ${money(price.amount, price.currency)} / month` : 'No seat price set'}</span>
+    <span class="z-signal engaged">Starter {money(price.starter, price.currency)} · Studio {money(price.studio, price.currency)} / month</span>
   </section>
 
   <section class="z-admin-kpis">
     <a class="z-akpi" href={url('admin/users')}><span>People</span><b>{fmt.int(s.users.n)}</b><small>{s.users.active7} active this week · {s.users.new30} new in 30 days</small></a>
     <a class="z-akpi" href={url('admin/projects')}><span>Projects</span><b>{fmt.int(s.projects.n)}</b><small>{s.envs.n} environments · {s.envs.confirmed} confirmed sites</small></a>
     <div class="z-akpi"><span>Sessions, 30 days</span><b>{fmt.int(s.traffic.sessions)}</b><small>{change === null ? `${fmt.int(s.traffic.visitors)} visitors` : <span class={change >= 0 ? 'up' : 'down'}>{change >= 0 ? '+' : ''}{change}% vs previous 30 days</span>}</small></div>
-    <a class="z-akpi" href={url('admin/billing')}><span>Paid seats</span><b>{fmt.int(s.seats)}</b><small>{mrr !== null ? `≈ ${money(mrr, price!.currency)} per month` : 'Set a seat price to see revenue'}</small></a>
+    <a class="z-akpi" href={url('admin/billing')}><span>Paying projects</span><b>{fmt.int(s.seats)}</b><small>≈ {money(mrr, price.currency)} per month</small></a>
   </section>
 
   <section class="z-grid z-row-2-1">

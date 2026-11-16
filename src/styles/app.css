@@ -965,3 +965,11 @@ html.theme-dark .z-site-ico .lt:has(+ .dk) { display: none; }
   .z-agent-line { flex-direction: column; }
   .z-agent-create { flex-direction: column; } .z-agent-create .z-input { max-width: none; }
 }
+
+/* ---------- Plans ---------- */
+.z-usage { display: flex; flex-direction: column; gap: 8px; }
+.z-usage-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 14px; }
+.z-usage-head .muted { font-size: 12.5px; }
+.z-usage-bar { display: block; height: 6px; border-radius: 99px; background: var(--_theme---surface-raised); overflow: hidden; }
+.z-usage-bar i { display: block; height: 100%; min-width: 2px; border-radius: 99px; background: var(--z-blue); }
+.z-usage-bar.full i { background: var(--z-coral); }

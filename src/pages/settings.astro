@@ -5,11 +5,12 @@ import { UserProfile } from '@clerk/astro/components';
 import App from '../layouts/App.astro';
 import SiteIcon from '../components/SiteIcon.astro';
 import AppHeader from '../components/AppHeader.astro';
-import { db, listEnvironments, listProjects, MAX_ENVIRONMENTS, ownerId, url, type Project } from '../lib/server';
-import { BILLING_GRACE_DAYS, fmt, isDevUser } from '../lib/page';
-import { billable, DEFAULT_NOTIFY, me, membersOf, PLAN_LABEL, prefsOf, type Access, type Member } from '../lib/users';
+import { db, listEnvironments, listProjects, ownerId, url, type Project } from '../lib/server';
+import { fmt, isDevUser } from '../lib/page';
+import { DEFAULT_NOTIFY, me, membersOf, PLAN_LABEL, prefsOf, type Access, type Member } from '../lib/users';
+import { planPrices, planState, priceOf } from '../lib/plans';
 import { actorFor, can } from '../lib/members';
-import { checkoutForProject, money, portalForProject, seatPrice, stripeEnabled, stripeTestMode } from '../lib/stripe';
+import { checkoutForProject, money, portalForProject, stripeTestMode } from '../lib/stripe';
 import { mailEnabled } from '../lib/mail';
 import { appOrigin } from '../lib/notify';
 
@@ -73,25 +74,15 @@ if (Astro.request.method === 'POST') {
 user = (await me(Astro))!;
 const projects = await listProjects(owner);
 const data = await Promise.all(projects.map(async (p) => {
-  const [members, envs, invites, requests, seatsMonth] = await Promise.all([
-    membersOf(p.id), listEnvironments(p.id),
-    db().prepare('SELECT token, email, access, created, expires FROM invitations WHERE project_id = ? AND accepted_at IS NULL AND revoked = 0 AND expires > ? ORDER BY created DESC').bind(p.id, Date.now()).all<{ token: string; email: string; access: Access; created: number; expires: number }>().then((r) => r.results),
-    db().prepare("SELECT id, email, domain, message, created FROM access_requests WHERE project_id = ? AND status = 'open' ORDER BY created").bind(p.id).all<{ id: string; email: string; domain: string; message: string | null; created: number }>().then((r) => r.results),
-    db().prepare("SELECT COALESCE(SUM(seats), 0) AS d FROM billing_days WHERE project_id = ? AND substr(day, 1, 7) = ?").bind(p.id, new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' }).slice(0, 7)).first<{ d: number }>().then((r) => r?.d ?? 0),
-  ]);
+  const [members, envs, st] = await Promise.all([membersOf(p.id), listEnvironments(p.id), planState(p.id)]);
   const a = await actorFor(user, p.id);
-  return { p, members, envs, invites, requests, seatsMonth, a, billableSeats: members.filter(billable).length };
+  return { p, members, envs, st, a };
 }));
 const prefs = prefsOf(user);
 const inbox = (await db().prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created DESC LIMIT 40').bind(user.id).all<{ id: number; kind: string; title: string; body: string | null; link: string | null; created: number; read_at: number | null }>()).results;
-const price = await seatPrice();
-const priceText = price ? `${money(price.amount, price.currency)} per Pro seat / month` : 'Price set by Nassau';
+const price = await planPrices();
 const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join('');
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const now = new Date();
-const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-const monthName = now.toLocaleDateString('en-GB', { month: 'long', timeZone: 'Europe/Stockholm' });
-const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
 const notifyRows: [keyof typeof DEFAULT_NOTIFY, string, string][] = [
   ['weekly', 'Weekly report', 'A short email with visitors, engagement, rage clicks and page changes for each of your sites.'],
   ['version', 'New site version', 'When Probe detects a new layout across a site (e.g. “Nassau web 2.0”).'],
@@ -99,13 +90,13 @@ const notifyRows: [keyof typeof DEFAULT_NOTIFY, string, string][] = [
   ['rage', 'Rage-click spikes', 'When visitors suddenly click in frustration much more than usual.'],
   ['traffic', 'Traffic spikes and drops', 'Unusually many or few visits — also catches a snippet that went missing.'],
   ['members', 'People', 'Invitations accepted, members leaving, requests to join your projects.'],
-  ['billing', 'Billing', 'Changes in paid seats, invoices and failed payments (project owners).'],
+  ['billing', 'Billing', 'Invoices and failed payments (project owners).'],
   ['claims', 'Site confirmation', 'When a new site is confirmed by its first visit, or a reservation is about to lapse.'],
 ];
 const PLANS = [
-  { key: 'basic', name: 'Basic – Free', price: 'Free', points: ['View projects you’re invited to', 'Dashboards, sessions, heatmaps, versions and audits — read-only', 'Can’t create projects or export reports'] },
-  { key: 'pro', name: 'Pro', price: price ? `${money(price.amount, price.currency)} / seat / month` : 'Paid per seat', points: ['Create projects with up to 4 environments', 'Edit everything, invite people, run audits, export reports', 'Each project pays for its Pro members after every full month'] },
-  { key: 'pro_free', name: 'Pro – Free', price: 'Free', points: ['Everything in Pro, never billed', 'Given by Nassau'] },
+  { key: 'basic', name: 'Basic – Free', price: 'Free', points: ['View projects you’re invited to', 'Dashboards, sessions, heatmaps, versions and audits, read-only', 'Can’t create projects or export reports'] },
+  { key: 'pro', name: 'Pro', price: 'Free', points: ['Create your own projects', 'Edit everything, invite people, run audits, export reports', 'Each project has its own plan: Free, Starter or Studio'] },
+  { key: 'pro_free', name: 'Pro – Free', price: 'Free', points: ['Everything in Pro', 'Your projects get Studio without charge', 'Given by Nassau'] },
   { key: 'owner', name: 'Owner', price: '—', points: ['The service owner (Nassau)', 'Everything, plus Admin'] },
 ];
 const backTo = Astro.request.headers.get('referer')?.includes('/settings') ? url('') : Astro.request.headers.get('referer') || url('');
@@ -144,7 +135,7 @@ const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (use
                 {projects.length === 0 && <p class="muted">None yet.</p>}
                 <ul class="z-set-projects">
                   {data.map(({ p, a, envs }) => (
-                    <li><SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={22} /><span><b>{p.name}</b><span class="muted">{a.role === 'owner' ? 'Project owner' : 'Member'} · {a.access === 'pro' ? 'Pro' : 'Basic'} · {envs.length} of {MAX_ENVIRONMENTS} environments</span></span><a class="z-link" style="margin-left:auto" href={url(`p/${p.id}/settings`)}>Project settings</a></li>
+                    <li><SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={22} /><span><b>{p.name}</b><span class="muted">{a.role === 'owner' ? 'Project owner' : 'Member'} · {a.access === 'pro' ? 'Pro' : 'Basic'} · {envs.length} {envs.length === 1 ? 'environment' : 'environments'} · {st.limits.name}</span></span><a class="z-link" style="margin-left:auto" href={url(`p/${p.id}/settings`)}>Project settings</a></li>
                   ))}
                 </ul>
               </div>
@@ -201,7 +192,7 @@ const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (use
 
         {tab === 'plan' && (
           <div class="z-set-plan">
-            <h3>Your plan</h3>
+            <h3>Your account</h3>
             <div class="z-plans">
               {PLANS.filter((x) => x.key !== 'owner' || user.plan === 'owner').filter((x) => x.key !== 'pro_free' || user.plan === 'pro_free').map((x) => (
                 <div class:list={['z-plan', { current: user.plan === x.key }]}>
@@ -210,39 +201,27 @@ const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (use
                   <ul>{x.points.map((pt) => <li>{pt}</li>)}</ul>
                   {(user.plan === 'pro' || user.plan === 'basic') && user.plan !== x.key && (x.key === 'pro' || x.key === 'basic') && (
                     <form method="post"><input type="hidden" name="action" value="plan" /><input type="hidden" name="plan" value={x.key} />
-                      <button class:list={['z-btn', x.key === 'pro' ? 'z-btn-primary' : 'z-btn-secondary']} type="submit">{x.key === 'pro' ? 'Upgrade to Pro' : 'Switch to Basic – Free'}</button></form>
+                      <button class:list={['z-btn', x.key === 'pro' ? 'z-btn-primary' : 'z-btn-secondary']} type="submit">{x.key === 'pro' ? 'Switch to Pro' : 'Switch to Basic – Free'}</button></form>
                   )}
                 </div>
               ))}
             </div>
-            <h3>Project billing</h3>
-            <p class="muted z-set-intro">Each project pays for its Pro members. Seats are counted every day; after each full month the project is charged for the days each paid seat was active ({priceText}). Basic members and people on Pro – Free are never charged.{stripeTestMode() && ' Stripe is in test mode — no real charges.'}</p>
-            {data.filter(({ a }) => a.role === 'owner' || user.plan === 'owner').length === 0 && <p class="muted">You don’t own any projects, so there’s nothing to pay. Project owners handle billing.</p>}
+            <h3>Project plans</h3>
+            <p class="muted z-set-intro">Accounts are free. Each project has its own plan, chosen by its owner, which sets how many sessions it stores each month and how long they’re kept.{stripeTestMode() && ' Stripe is in test mode, so no real charges are made.'}</p>
+            {data.length === 0 && <p class="muted">You’re not in any projects yet.</p>}
             <div class="z-bills">
-              {data.filter(({ a }) => a.role === 'owner').map(({ p, members, billableSeats, seatsMonth }) => {
-                const est = price ? Math.round((seatsMonth / daysInMonth) * price.amount) : null;
-                const grace = new Date(p.created + BILLING_GRACE_DAYS * 864e5);
-                return (
-                  <article class="z-bill">
-                    <header><b>{p.name}</b>{p.billing_status === 'active' ? <span class="z-signal engaged">Card on file</span> : p.billing_status === 'past_due' ? <span class="z-signal rage">Payment failed</span> : billableSeats ? <span class="z-signal dead">No card yet</span> : <span class="z-signal bounce">Nothing to pay</span>}</header>
-                    <dl>
-                      <div><dt>Paid seats now</dt><dd>{billableSeats}</dd></div>
-                      <div><dt>{monthName} so far</dt><dd>{(seatsMonth / daysInMonth).toFixed(2)} seat-months</dd></div>
-                      <div><dt>Estimate for {monthName}</dt><dd>{est !== null ? money(est, price!.currency) : '—'}</dd></div>
-                      <div><dt>Charged</dt><dd>after {monthEnd}</dd></div>
-                    </dl>
-                    <p class="muted z-small">{members.filter(billable).map((m) => m.name || m.email).join(', ') || 'No paid seats — everyone here is Basic or on a free plan.'}</p>
-                    {!stripeEnabled() ? <p class="muted z-small">Payments aren’t connected yet.</p> : (
-                      <form method="post" class="z-bill-actions">
-                        <input type="hidden" name="project" value={p.id} />
-                        {p.stripe_customer && p.billing_status ? <button class="z-btn z-btn-secondary" name="action" value="portal">Manage card and invoices</button>
-                          : billableSeats > 0 && <button class="z-btn z-btn-primary" name="action" value="checkout">Add a payment card</button>}
-                        {!p.billing_status && billableSeats > 0 && <span class="muted z-small">Needed by {grace.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} to keep editing.</span>}
-                      </form>
-                    )}
-                  </article>
-                );
-              })}
+              {data.map(({ p, st, a }) => (
+                <article class="z-bill">
+                  <header><b data-no-i18n>{p.name}</b><span class="z-chip">{st.limits.name}</span></header>
+                  <dl>
+                    <div><dt>Sessions this month</dt><dd>{fmt.int(st.used)} of {fmt.int(st.limits.sessions)}</dd></div>
+                    <div><dt>Price</dt><dd>{st.plan === 'free' ? 'Free' : st.comped ? 'Not billed' : `${money(priceOf(price, st.plan), price.currency)} / month`}</dd></div>
+                  </dl>
+                  <span class:list={['z-usage-bar', { full: st.used >= st.limits.sessions }]}><i style={`width:${Math.min(100, Math.round((st.used / st.limits.sessions) * 100))}%`}></i></span>
+                  <div class="z-bill-actions"><a class="z-btn z-btn-secondary" href={url(`p/${p.id}/settings#plan`)}>{a.role === 'owner' ? 'Plan and payment' : 'See the plan'}</a>
+                    {st.plan !== 'free' && !st.comped && (p.billing_status === 'active' ? <span class="z-signal engaged">Card on file</span> : p.billing_status === 'past_due' ? <span class="z-signal rage">Payment failed</span> : <span class="z-signal dead">No card yet</span>)}</div>
+                </article>
+              ))}
             </div>
           </div>
         )}

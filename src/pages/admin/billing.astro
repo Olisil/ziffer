@@ -4,7 +4,8 @@ import { requireOwner } from '../../lib/admin';
 import { runJobs } from '../../lib/jobs';
 import { fmt } from '../../lib/page';
 import { db, url } from '../../lib/server';
-import { getSetting, installWebhook, invoiceMonth, money, seatPrice, setSetting, stripeEnabled, stripeTestMode } from '../../lib/stripe';
+import { getSetting, installWebhook, invoiceMonth, money, setSetting, stripeEnabled, stripeTestMode } from '../../lib/stripe';
+import { effective, planPrices, PLANS, priceOf } from '../../lib/plans';
 import { appOrigin } from '../../lib/notify';
 import { mailEnabled } from '../../lib/mail';
 
@@ -16,20 +17,20 @@ if (Astro.request.method === 'POST') {
   try {
     switch (String(f.get('action'))) {
       case 'price': {
-        const amount = Math.round(Number(String(f.get('amount') || '').replace(',', '.')) * 100);
+        const amt = (k: string) => Math.round(Number(String(f.get(k) || '').replace(',', '.')) * 100);
+        const starter = amt('starter'), studio = amt('studio');
         const currency = String(f.get('currency') || 'sek').toLowerCase();
-        if (!Number.isFinite(amount) || amount < 0 || amount > 10_000_000) throw new Error('Enter a price, for example 99.');
+        if (![starter, studio].every((v) => Number.isFinite(v) && v >= 0 && v <= 10_000_000)) throw new Error('Enter both prices, for example 129 and 449.');
         if (!['sek', 'eur', 'usd', 'nok', 'dkk', 'gbp'].includes(currency)) throw new Error('Pick a currency.');
-        await setSetting('seat_price', JSON.stringify({ amount, currency }));
-        notice = `Seat price saved: ${money(amount, currency)} per Pro seat and month.`;
+        await setSetting('plan_prices', JSON.stringify({ currency, starter, studio }));
+        notice = `Prices saved: Starter ${money(starter, currency)} and Studio ${money(studio, currency)} a month.`;
         if (stripeEnabled() && !(await getSetting('stripe_webhook_id'))) { await installWebhook(appOrigin(Astro.request)); notice += ' Stripe is set up to tell Probe about payments.'; }
         break;
       }
       case 'webhook': await installWebhook(appOrigin(Astro.request)); notice = 'Stripe webhook installed.'; break;
       case 'jobs': { const r = await runJobs(appOrigin(Astro.request), true); notice = `Background jobs ran: ${Object.entries(r).map(([k, v]) => `${k} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ')}`; break; }
       case 'retry': {
-        const pid = String(f.get('project')), month = String(f.get('month')), price = await seatPrice();
-        if (!price) throw new Error('Set a seat price first.');
+        const pid = String(f.get('project')), month = String(f.get('month')), price = await planPrices();
         await db().prepare("DELETE FROM billing_invoices WHERE project_id = ? AND month = ? AND status = 'no_card'").bind(pid, month).run();
         const inv = await invoiceMonth(pid, month, price);
         notice = inv ? 'Invoice created and sent to Stripe.' : 'Still no card on file for that project.';
@@ -38,17 +39,18 @@ if (Astro.request.method === 'POST') {
     }
   } catch (e: any) { error = e.message; }
 }
-const price = await seatPrice();
+const price = await planPrices();
+const pricesSaved = !!(await getSetting('plan_prices'));
 const hook = await getSetting('stripe_webhook_id');
 const lastJobs = Number((await getSetting('jobs_last')) || 0);
 const invoices = (await db().prepare(
   `SELECT i.*, p.name AS project_name FROM billing_invoices i JOIN projects p ON p.id = i.project_id WHERE i.status <> 'nothing' ORDER BY i.month DESC, i.created DESC LIMIT 100`,
 ).all<{ project_id: string; project_name: string; month: string; seat_days: number; amount: number; currency: string; status: string; stripe_invoice: string | null; created: number }>()).results;
 const owed = (await db().prepare(
-  `SELECT p.id, p.name, p.stripe_customer, p.billing_status, p.created,
-          (SELECT COUNT(*) FROM project_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.project_id = p.id AND m.access = 'pro' AND COALESCE(u.plan, 'pro') IN ('pro', 'basic')) AS seats
-     FROM projects p ORDER BY seats DESC`,
-).all<{ id: string; name: string; stripe_customer: string | null; billing_status: string | null; created: number; seats: number }>()).results.filter((p) => p.seats > 0);
+  `SELECT p.id, p.name, p.stripe_customer, p.billing_status, p.created, p.plan, p.plan_comp, u.plan AS owner_plan
+     FROM projects p LEFT JOIN users u ON u.id = p.owner_id WHERE p.plan IN ('starter', 'studio')`,
+).all<{ id: string; name: string; stripe_customer: string | null; billing_status: string | null; created: number; plan: string; plan_comp: number; owner_plan: string | null }>()).results
+  .map((p) => ({ ...p, e: effective(p) })).filter((p) => !p.e.comped && p.e.plan !== 'free');
 const paid = invoices.filter((i) => i.status === 'paid').reduce((a, i) => a + i.amount, 0);
 const dash = stripeTestMode() ? 'https://dashboard.stripe.com/test' : 'https://dashboard.stripe.com';
 const statusChip: Record<string, string> = { paid: 'good', failed: 'bad', open: '', no_card: 'warn' };
@@ -64,7 +66,7 @@ const statusChip: Record<string, string> = { paid: 'good', failed: 'bad', open: 
         <ol class="z-steps-s">
           <li>In Stripe, open <b>Developers → API keys</b> (start in test mode) and copy the secret key.</li>
           <li>In Webflow Cloud, open the Probe app’s <b>Environment variables</b>, add <code>STRIPE_SECRET_KEY</code> as a secret, and redeploy.</li>
-          <li>Come back here and save a seat price — Probe then sets up its Stripe webhook by itself.</li>
+          <li>Come back here and save the plan prices — Probe then sets up its Stripe webhook by itself.</li>
         </ol>
       ) : (
         <dl class="z-kv">
@@ -82,27 +84,28 @@ const statusChip: Record<string, string> = { paid: 'good', failed: 'bad', open: 
       <p class="muted z-small">Switching from a test key to a live key? Reinstall the webhook afterwards, since Stripe keeps them apart.</p>
     </div>
     <div class="z-card">
-      <div class="z-card-head"><span class="z-card-title">Pro seat price</span><span class="z-card-hint">per seat and month</span></div>
+      <div class="z-card-head"><span class="z-card-title">Plan prices</span><span class="z-card-hint">per project and month</span></div>
       <form method="post" class="z-price-form">
         <input type="hidden" name="action" value="price" />
-        <label><span>Price</span><input class="z-input" name="amount" inputmode="decimal" required value={price ? (price.amount / 100).toString() : ''} placeholder="99" /></label>
-        <label><span>Currency</span><select class="z-select" name="currency">{['sek', 'eur', 'usd', 'nok', 'dkk', 'gbp'].map((c) => <option value={c} selected={(price?.currency ?? 'sek') === c}>{c.toUpperCase()}</option>)}</select></label>
-        <button class="z-btn z-btn-primary" type="submit">Save price</button>
+        <label><span>Starter</span><input class="z-input" name="starter" inputmode="decimal" required value={(price.starter / 100).toString()} /></label>
+        <label><span>Studio</span><input class="z-input" name="studio" inputmode="decimal" required value={(price.studio / 100).toString()} /></label>
+        <label><span>Currency</span><select class="z-select" name="currency">{['sek', 'eur', 'usd', 'nok', 'dkk', 'gbp'].map((c) => <option value={c} selected={price.currency === c}>{c.toUpperCase()}</option>)}</select></label>
+        <button class="z-btn z-btn-primary" type="submit">Save prices</button>
       </form>
-      <p class="muted z-small">Each project pays for its members with Pro access on the Pro or Basic plan (Pro – Free people and the owner are free). A seat that was there for 10 days of a 30-day month costs a third of the price. VAT and receipts follow your Stripe settings.</p>
+      <p class="muted z-small">{pricesSaved ? '' : 'These are the starting prices; save to confirm or change them. '}Free: {PLANS.free.sessions.toLocaleString('en-GB')} sessions a month. Starter: {PLANS.starter.sessions.toLocaleString('en-GB')}. Studio: {PLANS.studio.sessions.toLocaleString('en-GB')}. A project is charged after each full month for the days it was on a paid plan. Projects owned by you or by people on Pro – Free get Studio without charge. VAT and receipts follow your Stripe settings.</p>
       <div class="z-card-head" style="margin-top:12px"><span class="z-card-title">Background jobs</span></div>
-      <p class="muted z-small">Seats are counted, invoices made, alerts and weekly reports sent once an hour while there’s traffic. Last run: {lastJobs ? new Date(lastJobs).toLocaleString('en-GB', { timeZone: 'Europe/Stockholm', dateStyle: 'medium', timeStyle: 'short' }) : 'never'}. Email {mailEnabled() ? 'is connected' : 'isn’t connected (add RESEND_API_KEY)'}.</p>
+      <p class="muted z-small">Plans are noted, invoices made, old data removed, alerts and weekly reports sent once an hour while there’s traffic. Last run: {lastJobs ? new Date(lastJobs).toLocaleString('en-GB', { timeZone: 'Europe/Stockholm', dateStyle: 'medium', timeStyle: 'short' }) : 'never'}. Email {mailEnabled() ? 'is connected' : 'isn’t connected (add RESEND_API_KEY)'}.</p>
       <form method="post"><input type="hidden" name="action" value="jobs" /><button class="z-btn z-btn-secondary" type="submit">Run them now</button></form>
     </div>
   </section>
 
   <section class="z-card">
-    <div class="z-card-head"><span class="z-card-title">Projects with paid seats</span><span class="z-card-hint">{owed.length}</span></div>
-    {owed.length === 0 ? <p class="muted">No project has paid seats right now.</p> : (
+    <div class="z-card-head"><span class="z-card-title">Projects on a paid plan</span><span class="z-card-hint">{owed.length}</span></div>
+    {owed.length === 0 ? <p class="muted">No project is on a paid plan right now.</p> : (
       <div class="z-table-wrap"><table class="z-table">
-        <thead><tr><th>Project</th><th class="num">Seats</th><th>Per month</th><th>Card</th></tr></thead>
+        <thead><tr><th>Project</th><th>Plan</th><th>Per month</th><th>Card</th></tr></thead>
         <tbody>{owed.map((p) => (
-          <tr><td><a href={url(`admin/projects/${p.id}`)}><b>{p.name}</b></a></td><td class="num">{p.seats}</td><td>{price ? money(p.seats * price.amount, price.currency) : '—'}</td>
+          <tr><td><a href={url(`admin/projects/${p.id}`)}><b>{p.name}</b></a></td><td>{PLANS[p.e.plan].name}</td><td>{money(priceOf(price, p.e.plan), price.currency)}</td>
             <td>{p.billing_status === 'past_due' ? <span class="z-chip bad">Payment failed</span> : p.billing_status === 'active' ? <span class="z-chip good">On file</span> : p.stripe_customer ? <span class="z-chip warn">Checkout not finished</span> : <span class="z-chip warn">Missing</span>}</td></tr>
         ))}</tbody>
       </table></div>
@@ -111,9 +114,9 @@ const statusChip: Record<string, string> = { paid: 'good', failed: 'bad', open: 
 
   <section class="z-card">
     <div class="z-card-head"><span class="z-card-title">Invoices</span></div>
-    {invoices.length === 0 ? <p class="muted">No invoices yet. The first ones are made right after the first full month with paid seats.</p> : (
+    {invoices.length === 0 ? <p class="muted">No invoices yet. The first ones are made right after the first full month on a paid plan.</p> : (
       <div class="z-table-wrap"><table class="z-table">
-        <thead><tr><th>Month</th><th>Project</th><th class="num">Seat-days</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Month</th><th>Project</th><th class="num">Days</th><th>Amount</th><th>Status</th><th></th></tr></thead>
         <tbody>{invoices.map((i) => (
           <tr><td>{i.month}</td><td><a href={url(`admin/projects/${i.project_id}`)}>{i.project_name}</a></td><td class="num">{i.seat_days}</td><td>{money(i.amount, i.currency)}</td>
             <td><span class:list={['z-chip', statusChip[i.status] ?? '']}>{i.status === 'no_card' ? 'No card' : i.status}</span></td>

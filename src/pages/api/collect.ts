@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { admitSession } from '../../lib/plans';
 import { APP_HOME, db } from '../../lib/server';
 import { confirmClaim, envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 import { browserOf, osOf } from '../../lib/ua';
@@ -66,6 +67,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return new Response(null, { status: 204, headers: cors });
   }
   if (/bot|crawl|spider|slurp|headless|lighthouse/i.test(ua)) return new Response(null, { status: 204, headers: cors });
+  // A new visit is only taken in while the project has sessions left this month.
+  const pvs = body.ev.filter((e: any) => e && e.t === 'pv');
+  if (pvs.length && !(await admitSession(env.project_id, 'sessions', sid, pvs.some((e: any) => e.f === 1)))) return new Response(null, { status: 204, headers: cors });
   const DB = db();
   const stmts: D1PreparedStatement[] = [];
   let visitor: string | null = null;

@@ -26,7 +26,7 @@ export async function serviceStats() {
     one<{ sessions: number; pageviews: number; clicks: number }>('SELECT (SELECT COUNT(*) FROM sessions) AS sessions, (SELECT COUNT(*) FROM pageviews) AS pageviews, (SELECT COUNT(*) FROM clicks) AS clicks'),
     one<{ n: number; bytes: number }>('SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes FROM snapshots'),
     one<{ n: number; avg_seo: number; avg_aeo: number }>("SELECT COUNT(*) AS n, ROUND(AVG(seo)) AS avg_seo, ROUND(AVG(aeo)) AS avg_aeo FROM audits WHERE status = 'done' AND ran_at >= ?", d30),
-    one<{ n: number }>("SELECT COUNT(*) AS n FROM project_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.access = 'pro' AND COALESCE(u.plan, 'pro') IN ('pro', 'basic')"),
+    one<{ n: number; starter: number; studio: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(p.plan = 'starter'), 0) AS starter, COALESCE(SUM(p.plan = 'studio'), 0) AS studio FROM projects p LEFT JOIN users u ON u.id = p.owner_id WHERE p.plan IN ('starter', 'studio') AND p.plan_comp = 0 AND COALESCE(u.plan, 'pro') NOT IN ('owner', 'pro_free')"),
     all<{ day: number; n: number }>('SELECT CAST((started - ?) / 86400000 AS INTEGER) AS day, COUNT(*) AS n FROM sessions WHERE started >= ? GROUP BY day', d30, d30),
     all<{ wk: number; n: number }>('SELECT CAST((created - ?) / 604800000 AS INTEGER) AS wk, COUNT(*) AS n FROM users WHERE created >= ? GROUP BY wk', now - 12 * 7 * 864e5, now - 12 * 7 * 864e5),
     all<{ id: string; name: string; sessions: number; members: number; envs: number }>(
@@ -44,7 +44,7 @@ export async function serviceStats() {
        ) ORDER BY at DESC LIMIT 12`),
   ]);
   return {
-    users, plans: Object.fromEntries(plans.map((p) => [p.plan, p.n])) as Record<string, number>, projects, envs, traffic, prev, stored, snaps, audits, seats: seats.n,
+    users, plans: Object.fromEntries(plans.map((p) => [p.plan, p.n])) as Record<string, number>, projects, envs, traffic, prev, stored, snaps, audits, seats: seats.n, paying: seats,
     daily: Array.from({ length: 30 }, (_, i) => daily.find((x) => x.day === i)?.n ?? 0),
     signups: Array.from({ length: 12 }, (_, i) => signups.find((x) => x.wk === i)?.n ?? 0),
     top, recent,
@@ -60,12 +60,12 @@ export async function adminUsers() {
 }
 
 export async function adminProjects() {
-  return all<{ id: string; name: string; created: number; billing_status: string | null; owner_name: string | null; owner_email: string | null; members: number; envs: number; sessions: number; seats: number }>(
+  return all<{ id: string; name: string; created: number; billing_status: string | null; owner_name: string | null; owner_email: string | null; members: number; envs: number; sessions: number; seats: number; plan: string; plan_comp: number; owner_plan: string | null }>(
     `SELECT p.*, ou.name AS owner_name, ou.email AS owner_email,
             (SELECT COUNT(*) FROM project_members m WHERE m.project_id = p.id) AS members,
             (SELECT COUNT(*) FROM environments e WHERE e.project_id = p.id) AS envs,
             (SELECT COUNT(*) FROM sessions s JOIN environments e ON e.id = s.env_id WHERE e.project_id = p.id AND s.started >= ?) AS sessions,
-            (SELECT COUNT(*) FROM project_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.project_id = p.id AND m.access = 'pro' AND COALESCE(u.plan, 'pro') IN ('pro', 'basic')) AS seats
+            0 AS seats, ou.plan AS owner_plan
        FROM projects p
        LEFT JOIN project_members om ON om.project_id = p.id AND om.role = 'owner' LEFT JOIN users ou ON ou.id = om.user_id
       ORDER BY sessions DESC, p.created DESC`, Date.now() - 30 * 864e5);
@@ -80,7 +80,7 @@ import { PLAN_LABEL, type Plan, type User as AUser } from './users';
 
 const PLAN_TEXT: Record<string, string> = {
   pro_free: 'Pro – Free: create projects and edit everything, at no cost.',
-  pro: 'Pro: create projects and edit everything. Billed monthly per project seat, after each full month.',
+  pro: 'Pro: create projects and edit everything. The account is free; each project has its own plan.',
   basic: 'Basic – Free: view the projects you’re invited to (read-only).',
 };
 

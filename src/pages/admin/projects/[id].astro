@@ -5,7 +5,9 @@ import { adminInvite, adminProject, dailySessions, requireOwner } from '../../..
 import { actorFor, remove, setAccess, transfer } from '../../../lib/members';
 import { fmt } from '../../../lib/page';
 import { url } from '../../../lib/server';
-import { money, seatPrice } from '../../../lib/stripe';
+import { money } from '../../../lib/stripe';
+import { isPlan, PLAN_ORDER, PLANS, planPrices, planState, priceOf } from '../../../lib/plans';
+import { db } from '../../../lib/server';
 import { PLAN_LABEL, type Plan } from '../../../lib/users';
 
 const user = await requireOwner(Astro);
@@ -20,6 +22,12 @@ if (Astro.request.method === 'POST') {
       case 'access': await setAccess(a, target, String(f.get('access')) as any, Astro.request); notice = 'Access changed.'; break;
       case 'remove': await remove(a, target, Astro.request); notice = 'Removed from the project.'; break;
       case 'transfer': await transfer(a, target, Astro.request); notice = 'Project ownership handed over.'; break;
+      case 'plan': {
+        const to = String(f.get('plan'));
+        if (!isPlan(to)) throw new Error('Choose a plan.');
+        await db().prepare('UPDATE projects SET plan = ?, plan_since = ?, plan_comp = ? WHERE id = ?').bind(to, Date.now(), f.get('comp') === 'on' && to !== 'free' ? 1 : 0, pid).run();
+        notice = `Plan set to ${PLANS[to].name}${f.get('comp') === 'on' && to !== 'free' ? ', not billed' : ''}.`; break;
+      }
       case 'invite': {
         const r = await adminInvite(user, { email: String(f.get('email') || ''), plan: String(f.get('plan')) as Plan, projectId: pid, access: String(f.get('access')) as any }, Astro.request);
         notice = r.existing ? 'Added to the project.' : `Invitation sent. Link: ${r.link}`; break;
@@ -31,11 +39,8 @@ const d = await adminProject(pid);
 if (!d) return new Response('Not found', { status: 404 });
 const { project: p, members, envs, invoices, days, invites } = d;
 const usage = await dailySessions({ projectId: pid });
-const price = await seatPrice();
-const seats = members.filter((m) => m.access === 'pro' && (m.plan === 'pro' || m.plan === 'basic')).length;
-const month = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' }).slice(0, 7);
-const seatDays = days.filter((x) => x.day.startsWith(month)).reduce((a, x) => a + x.seats, 0);
-const dim = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+const price = await planPrices();
+const st = await planState(pid);
 const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((x) => x[0]!.toUpperCase()).join('');
 ---
 <AdminShell user={user} title={p.name} tab="projects" eyebrow="All projects">
@@ -43,10 +48,20 @@ const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolea
   {notice && <p class="z-flash" role="status">{notice}</p>}
   {error && <p class="z-flash bad" role="alert">{error}</p>}
   <section class="z-admin-kpis">
-    <div class="z-akpi"><span>Sessions, 30 days</span><b>{fmt.int(usage.counts.reduce((a, b) => a + b, 0))}</b><small>{envs.length} of 4 environments</small></div>
+    <div class="z-akpi"><span>Sessions, 30 days</span><b>{fmt.int(usage.counts.reduce((a, b) => a + b, 0))}</b><small>{envs.length} of {st.limits.environments} environments</small></div>
     <div class="z-akpi"><span>People</span><b>{members.length}</b><small>{members.filter((m) => m.access === 'pro').length} Pro · {members.filter((m) => m.access === 'basic').length} Basic</small></div>
-    <div class="z-akpi"><span>Paid seats</span><b>{seats}</b><small>{price ? `≈ ${money(Math.round((seatDays / dim) * price.amount), price.currency)} so far this month` : 'No seat price set'}</small></div>
-    <div class="z-akpi"><span>Billing</span><b>{p.billing_status === 'past_due' ? 'Payment failed' : p.billing_status === 'active' ? 'Card on file' : p.stripe_customer ? 'Checkout not finished' : seats ? 'No card yet' : 'Free'}</b><small>Created {fmt.date(p.created)}</small></div>
+    <div class="z-akpi"><span>Plan</span><b>{st.limits.name}</b><small>{st.plan === 'free' ? 'Free' : st.comped ? 'Not billed' : `${money(priceOf(price, st.plan), price.currency)} a month`} · {fmt.int(st.used)} of {fmt.int(st.limits.sessions)} sessions{st.dropped ? ` · ${fmt.int(st.dropped)} turned away` : ''}</small></div>
+    <div class="z-akpi"><span>Billing</span><b>{p.billing_status === 'past_due' ? 'Payment failed' : p.billing_status === 'active' ? 'Card on file' : p.stripe_customer ? 'Checkout not finished' : st.plan !== 'free' && !st.comped ? 'No card yet' : 'Nothing to pay'}</b><small>Created {fmt.date(p.created)}</small></div>
+  </section>
+  <section class="z-card">
+    <div class="z-card-head"><span class="z-card-title">Plan</span><span class="z-card-hint">Set by you; the project owner can also change it</span></div>
+    <form method="post" class="z-price-form">
+      <input type="hidden" name="action" value="plan" />
+      <label><span>Plan</span><select class="z-select" name="plan">{PLAN_ORDER.map((k) => <option value={k} selected={st.chosen === k}>{PLANS[k].name}</option>)}</select></label>
+      <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="comp" checked={!!(p as any).plan_comp} /><span>Give it without charge</span></label>
+      <button class="z-btn z-btn-primary" type="submit">Save plan</button>
+    </form>
+    {st.comped && !(p as any).plan_comp && <p class="muted z-small">This project runs on Studio without charge because its owner is you or someone on Pro – Free.</p>}
   </section>
 
   <section class="z-card">
@@ -103,11 +118,9 @@ const initials = (s: string | null) => (s || '?').split(/[\s@.]+/).filter(Boolea
     </div>
     <div class="z-card">
       <div class="z-card-head"><span class="z-card-title">Invoices</span></div>
-      {invoices.length === 0 ? <p class="muted z-small">No invoices yet. Paid seats are invoiced after each full month.</p> : (
-        <ul class="z-activity">{invoices.map((i) => <li><span class="grow"><b>{i.month}</b> <span class="muted">· {(i.seat_days / new Date(Number(i.month.slice(0, 4)), Number(i.month.slice(5, 7)), 0).getDate()).toFixed(1)} seat-months</span></span><span>{money(i.amount, i.currency)}</span><span class:list={['z-chip', i.status === 'paid' ? 'good' : i.status === 'failed' ? 'bad' : '']}>{i.status}</span></li>)}</ul>
+      {invoices.length === 0 ? <p class="muted z-small">No invoices yet. Paid plans are invoiced after each full month.</p> : (
+        <ul class="z-activity">{invoices.map((i) => <li><span class="grow"><b>{i.month}</b> <span class="muted">· {i.seat_days} days on a paid plan</span></span><span>{money(i.amount, i.currency)}</span><span class:list={['z-chip', i.status === 'paid' ? 'good' : i.status === 'failed' ? 'bad' : '']}>{i.status}</span></li>)}</ul>
       )}
-      <div class="z-card-head" style="margin-top:16px"><span class="z-card-title">Seats this month</span></div>
-      <p class="muted z-small">{seatDays} seat-days in {month} ({(seatDays / dim).toFixed(2)} seat-months).</p>
     </div>
   </section>
 </AdminShell>

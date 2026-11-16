@@ -1,10 +1,11 @@
 // Stripe, used directly over its REST API (no SDK needed in Workers).
 //
 // How Probe bills: each project saves a card through Stripe Checkout (setup mode). Every day Probe
-// counts the project's billable Pro seats. After each full month it creates one invoice for
-// (seat-days ÷ days in the month) × seat price and Stripe charges the saved card.
+// notes which paid plan the project is on. After each full month it creates one invoice for the
+// days on each plan (days ÷ days in the month × plan price) and Stripe charges the saved card.
 import { env } from 'cloudflare:workers';
 import { APP_HOME, db } from './server';
+import { isPlan, planPrices, PLANS, priceOf, type PlanPrices, type ProjectPlan } from './plans';
 
 export const stripeKey = () => (env as any).STRIPE_SECRET_KEY as string | undefined;
 export const stripeEnabled = () => !!stripeKey();
@@ -102,9 +103,9 @@ export async function checkoutForProject(p: { id: string; name: string; stripe_c
     await db().prepare('UPDATE projects SET stripe_customer = ? WHERE id = ?').bind(customer, p.id).run();
   }
   const s = await stripe('POST', 'checkout/sessions', {
-    mode: 'setup', customer, currency: (await seatPrice())?.currency ?? 'sek',
-    success_url: `${origin}/app/settings?tab=plan&billing=done&project=${p.id}`,
-    cancel_url: `${origin}/app/settings?tab=plan&project=${p.id}`,
+    mode: 'setup', customer, currency: (await planPrices()).currency,
+    success_url: `${origin}/app/p/${p.id}/settings?ok=${encodeURIComponent('Card saved')}#plan`,
+    cancel_url: `${origin}/app/p/${p.id}/settings#plan`,
     metadata: { ziffer_project: p.id }, setup_intent_data: { metadata: { ziffer_project: p.id } },
   });
   return s.url as string;
@@ -136,7 +137,7 @@ export async function handleEvent(evt: any) {
       const { notify, projectRecipients } = await import('./notify');
       await notify(await projectRecipients(pid, 'owner'), {
         kind: 'billing', projectId: pid, title: 'A Probe payment failed',
-        lines: [`Stripe couldn’t charge the card for this month’s Pro seats (${o.amount_due ? (o.amount_due / 100).toFixed(2) + ' ' + String(o.currency).toUpperCase() : ''}).`, 'Update the card to keep editing the project. Viewing still works.'],
+        lines: [`Stripe couldn’t charge the card for last month’s plan (${o.amount_due ? (o.amount_due / 100).toFixed(2) + ' ' + String(o.currency).toUpperCase() : ''}).`, 'Update the card to keep editing the project. Viewing still works.'],
         link: '/app/settings?tab=plan', button: 'Update the card',
       }, APP_HOME);
     }
@@ -145,38 +146,31 @@ export async function handleEvent(evt: any) {
   }
 }
 
-/** Invoice one project for one finished month (idempotent per project and month). */
-export async function invoiceMonth(projectId: string, month: string, price: SeatPrice) {
+/** Invoice one project for one finished month (idempotent per project and month): each day on a paid plan costs that plan's price ÷ days in the month. */
+export async function invoiceMonth(projectId: string, month: string, prices: PlanPrices) {
   const DB = db();
   const done = await DB.prepare('SELECT 1 FROM billing_invoices WHERE project_id = ? AND month = ?').bind(projectId, month).first();
   if (done) return null;
   const p = await DB.prepare('SELECT id, name, stripe_customer, billing_status FROM projects WHERE id = ?').bind(projectId).first<{ id: string; name: string; stripe_customer: string | null; billing_status: string | null }>();
-  const seatDays = (await DB.prepare("SELECT COALESCE(SUM(seats), 0) AS n FROM billing_days WHERE project_id = ? AND substr(day, 1, 7) = ?").bind(projectId, month).first<{ n: number }>())?.n ?? 0;
+  const days = (await DB.prepare("SELECT plan, COUNT(*) AS n FROM billing_days WHERE project_id = ? AND substr(day, 1, 7) = ? AND plan IS NOT NULL GROUP BY plan").bind(projectId, month).all<{ plan: string; n: number }>()).results.filter((d) => isPlan(d.plan) && d.plan !== 'free');
   const [y, m] = month.split('-').map(Number);
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const amount = Math.round((seatDays / daysInMonth) * price.amount);
-  if (!p || amount <= 0) {
-    await DB.prepare('INSERT OR IGNORE INTO billing_invoices (project_id, month, seat_days, amount, currency, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(projectId, month, seatDays, 0, price.currency, 'nothing', Date.now()).run();
-    return null;
-  }
+  const planDays = days.reduce((a, d) => a + d.n, 0);
+  const amount = Math.round(days.reduce((a, d) => a + (Math.min(d.n, daysInMonth) / daysInMonth) * priceOf(prices, d.plan as ProjectPlan), 0));
+  const record = (amt: number, status: string, invoice: string | null = null) =>
+    DB.prepare('INSERT OR IGNORE INTO billing_invoices (project_id, month, seat_days, amount, currency, stripe_invoice, status, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(projectId, month, planDays, amt, prices.currency, invoice, status, Date.now()).run();
+  if (!p || amount <= 0) { await record(0, 'nothing'); return null; }
   // A customer is created when checkout opens; only a finished checkout (active) or a failed charge (past_due) means a card was saved.
-  if (!p.stripe_customer || !p.billing_status) {
-    await DB.prepare('INSERT OR IGNORE INTO billing_invoices (project_id, month, seat_days, amount, currency, status, created) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(projectId, month, seatDays, amount, price.currency, 'no_card', Date.now()).run();
-    return null;
-  }
+  if (!p.stripe_customer || !p.billing_status) { await record(amount, 'no_card'); return null; }
   const monthName = new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const what = days.map((d) => `${PLANS[d.plan as ProjectPlan].name} for ${d.n} of ${daysInMonth} days`).join(', ');
   const inv = await stripe('POST', 'invoices', {
     customer: p.stripe_customer, collection_method: 'charge_automatically', auto_advance: true, pending_invoice_items_behavior: 'exclude',
-    description: `Probe Pro seats for ${p.name}, ${monthName}`, metadata: { ziffer_project: projectId, ziffer_month: month },
+    description: `Probe for ${p.name}, ${monthName}`, metadata: { ziffer_project: projectId, ziffer_month: month },
   }, `zinv-${projectId}-${month}`);
-  await stripe('POST', 'invoiceitems', {
-    customer: p.stripe_customer, invoice: inv.id, amount, currency: price.currency,
-    description: `Pro seats, ${monthName}: ${(seatDays / daysInMonth).toFixed(2)} seat-months (${seatDays} seat-days)`,
-  }, `zitem-${projectId}-${month}`);
+  await stripe('POST', 'invoiceitems', { customer: p.stripe_customer, invoice: inv.id, amount, currency: prices.currency, description: `${monthName}: ${what}` }, `zitem-${projectId}-${month}`);
   await stripe('POST', `invoices/${inv.id}/finalize`, { auto_advance: true }, `zfin-${projectId}-${month}`);
-  await DB.prepare('INSERT OR IGNORE INTO billing_invoices (project_id, month, seat_days, amount, currency, stripe_invoice, status, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(projectId, month, seatDays, amount, price.currency, inv.id, 'open', Date.now()).run();
+  await record(amount, 'open', inv.id);
   return inv.id as string;
 }

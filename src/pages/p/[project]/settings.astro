@@ -4,11 +4,12 @@ import App from '../../../layouts/App.astro';
 import AppHeader from '../../../components/AppHeader.astro';
 import SiteIcon from '../../../components/SiteIcon.astro';
 import SettingsNav from '../../../components/SettingsNav.astro';
-import { db, listEnvironments, listProjects, MAX_ENVIRONMENTS, ownerId, url } from '../../../lib/server';
-import { fmt, isDevUser } from '../../../lib/page';
-import { billable, me, membersOf, PLAN_LABEL, type Access, type Member } from '../../../lib/users';
+import { db, listEnvironments, listProjects, ownerId, url, type Project } from '../../../lib/server';
+import { BILLING_GRACE_DAYS, fmt, isDevUser } from '../../../lib/page';
+import { me, membersOf, type Access, type Member } from '../../../lib/users';
 import { actorFor, answerRequest, can, deleteProject, invite, leave, remove, setAccess, transfer } from '../../../lib/members';
-import { money, seatPrice } from '../../../lib/stripe';
+import { checkoutForProject, money, portalForProject, stripeEnabled, stripeTestMode } from '../../../lib/stripe';
+import { isPlan, PLAN_ORDER, PLANS, planPrices, planState, priceOf, rank } from '../../../lib/plans';
 import { mailEnabled } from '../../../lib/mail';
 import { appOrigin } from '../../../lib/notify';
 import AgentMark from '../../../components/AgentMark.astro';
@@ -49,6 +50,24 @@ if (Astro.request.method === 'POST') {
       if (name) await db().prepare('UPDATE projects SET name = ? WHERE id = ?').bind(name, pid).run();
       return here(ok('Saved'));
     }
+    if (action === 'plan' || action === 'checkout' || action === 'portal') {
+      if (!can.billing(a)) throw new Error('Only the project owner chooses the plan and handles payment.');
+      const proj = (await db().prepare('SELECT * FROM projects WHERE id = ?').bind(pid).first<Project>())!;
+      if (action === 'checkout') return Astro.redirect(await checkoutForProject(proj, user, appOrigin(Astro.request)), 303);
+      if (action === 'portal') { if (!proj.stripe_customer) throw new Error('There is no card to manage yet.'); return Astro.redirect(await portalForProject(proj.stripe_customer, appOrigin(Astro.request)), 303); }
+      const to = String(f.get('plan'));
+      if (!isPlan(to)) throw new Error('Choose a plan.');
+      const st = await planState(pid);
+      if (st.comped && !proj.plan_comp) throw new Error('This project’s plan is given by Nassau and isn’t billed.');
+      if (rank(to) < rank(st.plan)) {
+        // Moving down: the project has to fit the smaller plan first, so nothing disappears by surprise.
+        const envList = await listEnvironments(pid);
+        if (envList.length > PLANS[to].environments) throw new Error(`${PLANS[to].name} has room for ${PLANS[to].environments} ${PLANS[to].environments === 1 ? 'environment' : 'environments'}; this project has ${envList.length}. Remove environments first.`);
+        if (!PLANS[to].tours && envList.some((e) => e.kind === 'tour')) throw new Error(`${PLANS[to].name} doesn’t include virtual tours. Remove the tour environment first.`);
+      }
+      await db().prepare('UPDATE projects SET plan = ?, plan_since = ?, plan_comp = 0 WHERE id = ?').bind(to, Date.now(), pid).run();
+      return here(`${ok(`The project is now on ${PLANS[to].name}`)}#plan`);
+    }
     if (action === 'agent-key' || action === 'agent-revoke') {
       if (a.access !== 'pro') throw new Error('Only Pro members can manage agent keys.');
       if (action === 'agent-revoke') { await revokeKey(pid, String(f.get('key'))); return here(`${ok('Agent key removed')}#agents`); }
@@ -69,9 +88,18 @@ const [members, envs, invites, requests, a, price] = await Promise.all([
   membersOf(pid), listEnvironments(pid),
   db().prepare('SELECT token, email, access, created, expires FROM invitations WHERE project_id = ? AND accepted_at IS NULL AND revoked = 0 AND expires > ? ORDER BY created DESC').bind(pid, Date.now()).all<{ token: string; email: string; access: Access; created: number; expires: number }>().then((r) => r.results),
   db().prepare("SELECT id, email, domain, message, created FROM access_requests WHERE project_id = ? AND status = 'open' ORDER BY created").bind(pid).all<{ id: string; email: string; domain: string; message: string | null; created: number }>().then((r) => r.results),
-  actorFor(user, pid), seatPrice(),
+  actorFor(user, pid), planPrices(),
 ]);
-const billableSeats = members.filter(billable).length;
+const st = await planState(pid);
+const usedPct = Math.min(100, Math.round((st.used / st.limits.sessions) * 100));
+const graceEnd = new Date((st.since ?? p.created) + BILLING_GRACE_DAYS * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
+const needsCard = st.plan !== 'free' && !st.comped && p.billing_status !== 'active';
+const planPoints = (k: (typeof PLAN_ORDER)[number]) => { const l = PLANS[k]; return [
+  `${fmt.int(l.sessions)} sessions a month`,
+  l.environments === 1 ? '1 website' : `Up to ${l.environments} environments`,
+  l.retentionDays >= 365 ? '12 months of history' : `${l.retentionDays} days of history`,
+  l.tours ? 'Virtual tours and agent access' : 'Websites only',
+]; };
 const agentKeys = await listKeys(pid).catch(() => []);
 if (newKey) Astro.response.headers.set('Cache-Control', 'no-store');
 const mcpUrl = new URL(url('api/mcp'), appOrigin(Astro.request)).href;
@@ -98,18 +126,55 @@ const fromEnv = envs.find((e) => e.id === Astro.url.searchParams.get('from')) ??
     {error && <p class="z-card" role="alert" style="margin:0;color:var(--z-coral)">{error}</p>}
 
     <section class="z-card" style="display:flex;flex-direction:column;gap:16px">
-      <div class="z-card-head" style="margin:0"><span class="z-card-title">Project</span><span class="muted" style="margin-left:auto;font-size:12.5px">{envs.length} of {MAX_ENVIRONMENTS} environments · {members.length} {members.length === 1 ? 'person' : 'people'}{billableSeats ? ` · ${billableSeats} paid ${billableSeats === 1 ? 'seat' : 'seats'}` : ''}</span></div>
+      <div class="z-card-head" style="margin:0"><span class="z-card-title">Project</span><span class="muted" style="margin-left:auto;font-size:12.5px">{envs.length} of {st.limits.environments} {st.limits.environments === 1 ? 'environment' : 'environments'} · {members.length} {members.length === 1 ? 'person' : 'people'} · {st.limits.name}</span></div>
       {a.access === 'pro' ? (
         <form method="post" class="z-inline-rename"><input type="hidden" name="action" value="rename" /><input class="z-input" name="name" value={p.name} maxlength="80" aria-label="Project name" /><button class="z-btn z-btn-secondary" type="submit">Rename</button></form>
       ) : <p style="margin:0"><b>{p.name}</b></p>}
       <ul class="z-set-projects">
         {envs.map((e) => <li><SiteIcon env={e} name={e.name} size={22} /><span><b>{e.name}</b><span class="muted">{e.kind === 'web' ? (e.domain || 'Web') : 'Virtual tour'}</span></span><a class="z-link" style="margin-left:auto" href={url(`e/${e.id}/settings`)}>Site settings</a></li>)}
       </ul>
-      {a.access === 'pro' && envs.length < MAX_ENVIRONMENTS && <div><a class="z-btn z-btn-secondary" href={url(`p/${p.id}/environments/new`)}>+ Add environment</a></div>}
+      {a.access === 'pro' && envs.length < st.limits.environments && <div><a class="z-btn z-btn-secondary" href={url(`p/${p.id}/environments/new`)}>+ Add environment</a></div>}
+    </section>
+
+    <h2 class="z-set-h" id="plan" style="scroll-margin-top:90px">Plan</h2>
+    <p class="muted z-set-intro">A plan sets how many sessions the project stores each month and how long they’re kept. People are free on every plan.{stripeTestMode() && ' Stripe is in test mode, so no real charges are made.'}</p>
+    <section class="z-card" style="display:flex;flex-direction:column;gap:18px">
+      <div class="z-usage">
+        <div class="z-usage-head"><b>{fmt.int(st.used)} of {fmt.int(st.limits.sessions)} sessions this month</b><span class="muted">{st.limits.name}{st.comped ? ' · given by Nassau, not billed' : ''}</span></div>
+        <span class:list={['z-usage-bar', { full: st.used >= st.limits.sessions }]}><i style={`width:${usedPct}%`}></i></span>
+        {st.used >= st.limits.sessions
+          ? <p class="z-claim" style="margin:0"><span class="z-st warn"></span>The month’s sessions are used up. {fmt.int(st.dropped)} more visits came in and weren’t stored. A larger plan takes effect at once.</p>
+          : st.dropped > 0 && <p class="muted z-small" style="margin:0">{fmt.int(st.dropped)} visits earlier this month weren’t stored, because the sessions were used up then.</p>}
+      </div>
+      <div class="z-plans">
+        {PLAN_ORDER.map((k) => (
+          <div class:list={['z-plan', { current: st.plan === k }]}>
+            <div class="z-plan-head"><b data-no-i18n>{PLANS[k].name}</b>{st.plan === k && <span class="z-chip z-chip-live">Current</span>}</div>
+            <div class="z-plan-price">{k === 'free' ? 'Free' : <>{money(priceOf(price, k), price.currency)}<small class="muted" style="font-size:13px;font-weight:400"> / month</small></>}</div>
+            <ul>{planPoints(k).map((pt) => <li>{pt}</li>)}</ul>
+            {can.billing(a) && st.plan !== k && !(st.comped && !p.plan_comp) && (
+              <form method="post"><input type="hidden" name="action" value="plan" /><input type="hidden" name="plan" value={k} />
+                <button class:list={['z-btn', rank(k) > rank(st.plan) ? 'z-btn-primary' : 'z-btn-secondary']} type="submit">{rank(k) > rank(st.plan) ? `Upgrade to ${PLANS[k].name}` : `Switch to ${PLANS[k].name}`}</button></form>
+            )}
+          </div>
+        ))}
+      </div>
+      {st.plan !== 'free' && !st.comped && (
+        <div class="z-bill-actions">
+          {p.billing_status === 'active' ? <span class="z-signal engaged">Card on file</span> : p.billing_status === 'past_due' ? <span class="z-signal rage">Payment failed</span> : <span class="z-signal dead">No card yet</span>}
+          {can.billing(a) && (!stripeEnabled() ? <span class="muted z-small">Payments aren’t connected yet.</span> : (
+            <form method="post" style="display:flex;gap:10px;align-items:center;margin:0">
+              {p.stripe_customer && p.billing_status ? <button class="z-btn z-btn-secondary" name="action" value="portal">Manage card and invoices</button> : <button class="z-btn z-btn-primary" name="action" value="checkout">Add a payment card</button>}
+            </form>
+          ))}
+          {needsCard && p.billing_status !== 'past_due' && <span class="muted z-small">Needed by {graceEnd} to keep editing.</span>}
+        </div>
+      )}
+      <p class="muted z-small" style="margin:0">Paid plans are charged after each full month, for the days the project was on the plan. When the month’s sessions are used up, new visits are no longer stored until the next month. Sessions older than the plan’s history are removed.</p>
     </section>
 
     <h2 class="z-set-h">People</h2>
-    <p class="muted z-set-intro">The project owner handles billing, can remove anyone, hand the project over and delete it. Pro members edit everything and can invite people; they can remove Basic members. Basic members read only. Anyone can leave a project.</p>
+    <p class="muted z-set-intro">The project owner chooses the plan, can remove anyone, hand the project over and delete it. Pro members edit everything and can invite people; they can remove Basic members. Basic members read only. Anyone can leave a project.</p>
               <section class="z-card z-set-project">
 
 
@@ -145,7 +210,6 @@ const fromEnv = envs.find((e) => e.id === Astro.url.searchParams.get('from')) ??
                             </select>
                           </form>
                         ) : <span class={`z-chip ${m.access}`}>{m.access === 'pro' ? 'Pro' : 'Basic'}</span>}
-                        {billable(m) ? <span class="muted z-seat" title="Billed to this project">paid seat</span> : m.access === 'pro' ? <span class="muted z-seat" title={`${PLAN_LABEL[m.plan]} plan`}>free seat</span> : null}
                       </span>
                       <span class="z-member-actions">
                         {can.transfer(a) && m.role !== 'owner' && m.plan !== 'basic' && (
@@ -228,7 +292,7 @@ const fromEnv = envs.find((e) => e.id === Astro.url.searchParams.get('from')) ??
         </ul>
       )}
 
-      {a.access === 'pro' ? (
+      {!st.limits.agents ? <p class="muted z-small" style="margin:0">Agent access is part of the Starter and Studio plans. <a class="z-link" href="#plan">See the plans</a></p> : a.access === 'pro' ? (
         agentKeys.length < MAX_KEYS
           ? <form method="post" action="#agents" class="z-agent-create"><input type="hidden" name="action" value="agent-key" /><input class="z-input" name="name" maxlength="60" placeholder="Name, e.g. Claude or Monthly report" aria-label="Key name" required /><button class="z-btn z-btn-primary" type="submit">Create key</button></form>
           : <p class="muted z-small" style="margin:0">This project has its {MAX_KEYS} keys. Remove one to create another.</p>

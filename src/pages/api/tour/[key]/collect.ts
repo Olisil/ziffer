@@ -1,6 +1,7 @@
 // Visits from the Intus tour viewer. The viewer's page names this address in
 // <meta name="intus-stats" content="…/app/api/tour/<site key>"> and posts to …/collect every 15 s and on leaving.
 import type { APIRoute } from 'astro';
+import { admitSession } from '../../../../lib/plans';
 import { db } from '../../../../lib/server';
 import { envForKey, originAllowed } from '../../../../lib/site-env';
 import { SID_RE, TOUR_RE } from '../../../../lib/tours';
@@ -29,6 +30,7 @@ export const POST: APIRoute = async ({ request, params }) => {
   const country = ((request as any).cf?.country as string | undefined)?.slice(0, 2) || null;
   const { tour, sid } = d;
   delete d.tour; delete d.sid;
+  if (!(await admitSession(env.project_id, 'tour_visits', sid))) return new Response(null, { status: 204, headers: cors });
   await db().prepare(`INSERT INTO tour_visits (sid, env_id, tour, started, updated, dur, device, country, data)
       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
       ON CONFLICT(sid) DO UPDATE SET updated = excluded.updated, dur = MAX(tour_visits.dur, excluded.dur), data = excluded.data

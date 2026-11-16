@@ -21,7 +21,7 @@
     var g = dims(), now = Date.now();
     pv = { id: rid(), path: location.pathname, vis: 0, since: d.visibilityState === 'visible' ? now : 0, scroll: 0 };
     // Query strings and hashes are dropped on purpose — they often carry personal data.
-    q.push({ t: 'pv', id: pv.id, p: pv.path, ti: d.title.slice(0, 140), r: firstPv ? refHost() : '', u: firstPv ? aiSrc() : '', vw: g.vw, vh: g.vh, dw: g.dw, dh: g.dh, ts: now });
+    q.push({ t: 'pv', id: pv.id, p: pv.path, ti: d.title.slice(0, 140), r: firstPv ? refHost() : '', u: firstPv ? aiSrc() : '', f: firstPv ? 1 : 0, vw: g.vw, vh: g.vh, dw: g.dw, dh: g.dh, ts: now });
     firstPv = false;
     onScroll(); flush();
     whenSettled(maybeSnapshot);

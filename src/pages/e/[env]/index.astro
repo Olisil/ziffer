@@ -22,6 +22,8 @@ const q = `?${rangeQuery(r)}`;
 const pct = (n: number, total: number) => (total ? Math.round((n / total) * 100) : 0);
 const deviceTotal = data ? data.devices.reduce((a, d) => a + d.n, 0) : 0;
 const refTotal = data ? data.referrers.reduce((a, d) => a + d.n, 0) : 0;
+import { planState } from '../../../lib/plans';
+const planNow = await planState(project.id);
 ---
 <App title={`${env.name} · Dashboard`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="dashboard" devUser={devUser} readOnly={ctx.readOnlyReason} />
@@ -31,6 +33,9 @@ const refTotal = data ? data.referrers.reduce((a, d) => a + d.n, 0) : 0;
       {env.kind === 'web' && <a class="z-btn z-btn-secondary" href={url(`e/${env.id}/settings`)}>Install snippet</a>}
     </TitleRow>
 
+    {planNow.used >= planNow.limits.sessions && (
+      <p class="z-card z-readonly" role="status"><b>This month’s sessions are used up.</b> <span class="muted">The {planNow.limits.name} plan stores {fmt.int(planNow.limits.sessions)} sessions a month, so new visits aren’t stored until next month.</span> <a class="z-link" href={url(`p/${project.id}/settings#plan`)}>See the plans</a></p>
+    )}
     {env.kind === 'tour' && <TourDashboard env={env} r={r} canEdit={ctx.canEdit} />}
 
     {data && empty && (

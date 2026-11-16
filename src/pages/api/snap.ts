@@ -4,6 +4,7 @@ import { db } from '../../lib/server';
 import { deviceBucket, envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 import { SNAP_MAX_BYTES, bucket, snapKey, snapshotWanted } from '../../lib/snapshots';
 import { currentVersionId, isHash } from '../../lib/versions';
+import { snapshotRoom } from '../../lib/plans';
 
 const corsFor = (origin: string | null) => ({ 'Access-Control-Allow-Origin': origin || '*', Vary: 'Origin' });
 const num = (v: unknown, min: number, max: number) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : min; };
@@ -27,7 +28,7 @@ export const GET: APIRoute = async ({ request, url }) => {
   const vwq = Number(url.searchParams.get('vw')) || 0;
   const device = deviceBucket(vwq);
   const sq = url.searchParams.get('s');
-  const need = !!path && vwq >= 240 && (await snapshotWanted(r.site.id, path, device, isHash(sq, 16) ? sq : null));
+  const need = !!path && vwq >= 240 && (await snapshotWanted(r.site.id, path, device, isHash(sq, 16) ? sq : null)) && (await snapshotRoom(r.site.id, path));
   return new Response(JSON.stringify({ need }), { headers });
 };
 
@@ -48,7 +49,7 @@ export const POST: APIRoute = async ({ request }) => {
   const device = deviceBucket(vw);
   // Re-check on write so a snapshot can't be overwritten more often than the freshness window allows.
   const s = isHash(body.s, 16) ? (body.s as string) : null;
-  if (!(await snapshotWanted(r.site.id, path, device, s))) return new Response(null, { status: 204, headers: cors });
+  if (!(await snapshotWanted(r.site.id, path, device, s)) || !(await snapshotRoom(r.site.id, path))) return new Response(null, { status: 204, headers: cors });
   const version = (await currentVersionId(r.site.id)) ?? '';
   const key = await snapKey(r.site.id, device, path, version);
   await bucket()!.put(key, html, { httpMetadata: { contentType: 'text/html; charset=utf-8' } });
