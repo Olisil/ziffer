@@ -27,7 +27,7 @@ const fail = (what, r) => stop(`${what} failed (HTTP ${r.status}): ${JSON.string
 {
   const v = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', { headers: { authorization: `Bearer ${token}` } });
   const vj = await v.json().catch(() => ({}));
-  if (!v.ok || vj.result?.status !== 'active') stop(`Cloudflare does not accept the value in CLOUDFLARE_API_TOKEN (HTTP ${v.status}, ${JSON.stringify(vj.errors ?? vj.result ?? '').slice(0, 200)}). It looks like ${token.length} characters starting with "${token.slice(0, 5)}". Paste the current token value again; after a roll the old value stops working.`);
+  if (!v.ok || vj.result?.status !== 'active') stop(`Cloudflare does not accept the value in CLOUDFLARE_API_TOKEN (HTTP ${v.status}, ${JSON.stringify(vj.errors ?? vj.result ?? '').slice(0, 200)}). ${/^[0-9a-f]{32}$/i.test(token) ? 'The value looks like an account ID, not a token. ' : ''}Paste the current token value again; after a roll the old value stops working.`);
   const a = await api('GET', '');
   if (!a.ok) stop(`The token is valid but cannot open the account in CLOUDFLARE_ACCOUNT_ID (HTTP ${a.status}). Either the ID belongs to another account, or the token's Account policy does not include this account.`);
 }
