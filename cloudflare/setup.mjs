@@ -23,9 +23,18 @@ const api = async (method, path, body, headers = {}) => {
 };
 const fail = (what, r) => stop(`${what} failed (HTTP ${r.status}): ${JSON.stringify(r.errors ?? r.result ?? '').slice(0, 400)}`);
 
+// First find out whether the token works at all and can see the account, so a failure names the real cause.
+{
+  const v = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', { headers: { authorization: `Bearer ${token}` } });
+  const vj = await v.json().catch(() => ({}));
+  if (!v.ok || vj.result?.status !== 'active') stop(`Cloudflare does not accept the value in CLOUDFLARE_API_TOKEN (HTTP ${v.status}, ${JSON.stringify(vj.errors ?? vj.result ?? '').slice(0, 200)}). It looks like ${token.length} characters starting with "${token.slice(0, 5)}". Paste the current token value again; after a roll the old value stops working.`);
+  const a = await api('GET', '');
+  if (!a.ok) stop(`The token is valid but cannot open the account in CLOUDFLARE_ACCOUNT_ID (HTTP ${a.status}). Either the ID belongs to another account, or the token's Account policy does not include this account.`);
+}
+
 // Database, locked to the EU
 let r = await api('GET', `/d1/database?name=${NAME.db}&per_page=100`);
-if (!r.ok) fail('Listing databases', r);
+if (!r.ok) stop(`The token works and can see the account, but may not use D1 (HTTP ${r.status}). Edit the token and give its Account policy D1 with Edit.`);
 let db = (r.result || []).find((d) => d.name === NAME.db);
 if (!db) {
   r = await api('POST', '/d1/database', { name: NAME.db, jurisdiction: 'eu' });
