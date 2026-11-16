@@ -55,7 +55,7 @@ const paid = memberships.filter((m) => m.access === 'pro' && (p.plan === 'pro' |
       {p.plan !== 'owner' && (
         <form method="post" class="z-admin-plan">
           <span class="z-card-title">Plan</span>
-          {plans.map((x) => <label class="z-radio-card"><input type="radio" name="plan" value={x} checked={p.plan === x} /><span><b>{PLAN_LABEL[x]}</b><small class="muted">{{ pro_free: 'Edits everything, free', pro: 'Edits everything, billed per seat', basic: 'Views invited projects' }[x]}</small></span></label>)}
+          {plans.map((x) => <label class="z-radio-card"><input type="radio" name="plan" value={x} checked={p.plan === x} /><span><b>{PLAN_LABEL[x]}</b><small class="muted">{{ pro_free: 'Edits everything, projects on Studio at no cost', pro: 'Edits everything, each project has its own plan', basic: 'Views invited projects' }[x]}</small></span></label>)}
           <button class="z-btn z-btn-primary" type="submit">Save plan</button>
         </form>
       )}

@@ -329,6 +329,10 @@ export const SV: Record<string, string> = {
   'A plan sets how many sessions the project stores each month and how long they’re kept. People are free on every plan.': 'En plan avgör hur många sessioner projektet sparar varje månad och hur länge de sparas. Personer är gratis på alla planer.',
   'Accounts are free. Each project has its own plan, chosen by its owner, which sets how many sessions it stores each month and how long they’re kept.': 'Konton är gratis. Varje projekt har sin egen plan, vald av ägaren, som avgör hur många sessioner det sparar varje månad och hur länge de sparas.',
   'given by Nassau, not billed': 'från Nassau, debiteras inte',
+  'Projects priced separately': 'Projekt prissätts separat', 'Projects included': 'Projekt ingår',
+  'creates projects and edits everything; their projects run on Studio at no cost.': 'skapar projekt och ändrar allt; deras projekt körs på Studio utan kostnad.',
+  'is the same, with each project on its own plan: Free, Starter or Studio.': 'är samma sak, där varje projekt har sin egen plan: Free, Starter eller Studio.',
+  'Edits everything, projects on Studio at no cost': 'Ändrar allt, projekt på Studio utan kostnad', 'Edits everything, each project has its own plan': 'Ändrar allt, varje projekt har egen plan',
   // Misc
   'Sign in': 'Logga in', 'Sign up': 'Registrera dig', 'Close': 'Stäng', 'Cancel': 'Avbryt', 'Back': 'Tillbaka', 'Delete': 'Radera', 'Yes': 'Ja', 'No': 'Nej', 'Loading…': 'Laddar…',
   'Free for your first site · Made in Stockholm': 'Gratis för din första sajt · Gjord i Stockholm',

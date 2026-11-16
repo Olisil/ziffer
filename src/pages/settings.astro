@@ -95,8 +95,8 @@ const notifyRows: [keyof typeof DEFAULT_NOTIFY, string, string][] = [
 ];
 const PLANS = [
   { key: 'basic', name: 'Basic – Free', price: 'Free', points: ['View projects you’re invited to', 'Dashboards, sessions, heatmaps, versions and audits, read-only', 'Can’t create projects or export reports'] },
-  { key: 'pro', name: 'Pro', price: 'Free', points: ['Create your own projects', 'Edit everything, invite people, run audits, export reports', 'Each project has its own plan: Free, Starter or Studio'] },
-  { key: 'pro_free', name: 'Pro – Free', price: 'Free', points: ['Everything in Pro', 'Your projects get Studio without charge', 'Given by Nassau'] },
+  { key: 'pro', name: 'Pro', price: 'Projects priced separately', points: ['Create your own projects', 'Edit everything, invite people, run audits, export reports', 'Each project has its own plan: Free, Starter or Studio'] },
+  { key: 'pro_free', name: 'Pro – Free', price: 'Projects included', points: ['Everything in Pro', 'Your projects get Studio without charge', 'Given by Nassau'] },
   { key: 'owner', name: 'Owner', price: '—', points: ['The service owner (Nassau)', 'Everything, plus Admin'] },
 ];
 const backTo = Astro.request.headers.get('referer')?.includes('/settings') ? url('') : Astro.request.headers.get('referer') || url('');

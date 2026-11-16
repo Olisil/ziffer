@@ -79,7 +79,7 @@ import { appOrigin, notify } from './notify';
 import { PLAN_LABEL, type Plan, type User as AUser } from './users';
 
 const PLAN_TEXT: Record<string, string> = {
-  pro_free: 'Pro – Free: create projects and edit everything, at no cost.',
+  pro_free: 'Pro – Free: create projects and edit everything. Your projects run on Studio at no cost.',
   pro: 'Pro: create projects and edit everything. The account is free; each project has its own plan.',
   basic: 'Basic – Free: view the projects you’re invited to (read-only).',
 };
