@@ -25,8 +25,7 @@ const ask = async (url: string, init: RequestInit = {}) => {
 };
 
 export const POST: APIRoute = async (ctx) => {
-  const origin = ctx.request.headers.get('Origin');
-  if (origin && origin !== ctx.url.origin) return json({ error: 'Wrong origin.' }, 403);
+  // Cross-site writes are already refused in src/middleware.ts.
   const r = await envForApi(ctx, true);
   if ('error' in r) return r.error;
   const env = r.env;

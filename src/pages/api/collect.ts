@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { admitSession } from '../../lib/plans';
+import { visitorOf } from '../../lib/relay';
 import { APP_HOME, db } from '../../lib/server';
 import { confirmClaim, envForKey, originAllowed, pathOf, str } from '../../lib/site-env';
 import { browserOf, osOf } from '../../lib/ua';
@@ -55,9 +56,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const now = Date.now();
-  const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || '';
+  const { ip, country } = visitorOf(request);
   const ua = request.headers.get('User-Agent') || '';
-  const country = ((request as any).cf?.country as string | undefined)?.slice(0, 2) || null;
   // AI agents browsing for someone are noted on their own, never as people: no visitor count, clicks or heatmap data.
   const agent = agentOf(ua);
   if (agent) {

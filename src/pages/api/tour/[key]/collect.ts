@@ -2,6 +2,7 @@
 // <meta name="intus-stats" content="…/app/api/tour/<site key>"> and posts to …/collect every 15 s and on leaving.
 import type { APIRoute } from 'astro';
 import { admitSession } from '../../../../lib/plans';
+import { visitorOf } from '../../../../lib/relay';
 import { db } from '../../../../lib/server';
 import { envForKey, originAllowed } from '../../../../lib/site-env';
 import { SID_RE, TOUR_RE } from '../../../../lib/tours';
@@ -27,7 +28,7 @@ export const POST: APIRoute = async ({ request, params }) => {
   const started = Number.isFinite(d.started) ? Math.min(now, Math.max(now - 864e5, d.started)) : now;
   const dur = Math.max(0, Math.min(86400, Number(d.dur) || 0));
   const device = d.device === 'touch' ? 'touch' : 'desktop';
-  const country = ((request as any).cf?.country as string | undefined)?.slice(0, 2) || null;
+  const { country } = visitorOf(request);
   const { tour, sid } = d;
   delete d.tour; delete d.sid;
   if (!(await admitSession(env.project_id, 'tour_visits', sid))) return new Response(null, { status: 204, headers: cors });
