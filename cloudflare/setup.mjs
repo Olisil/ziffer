@@ -6,8 +6,12 @@
 // continue if one with the right name exists without the EU lock.
 import { writeFileSync } from 'node:fs';
 
-const token = process.env.CLOUDFLARE_API_TOKEN, account = process.env.CLOUDFLARE_ACCOUNT_ID;
-if (!token || !account) { console.error('CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set as repository secrets.'); process.exit(1); }
+const token = (process.env.CLOUDFLARE_API_TOKEN || '').trim(), account = (process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+// Messages starting with ::error:: and ::notice:: show up on the run's summary page in GitHub.
+const stop = (msg) => { console.log(`::error title=Cloudflare setup::${msg.replace(/\r?\n/g, ' ')}`); process.exit(1); };
+if (!token) stop('The repository secret CLOUDFLARE_API_TOKEN is missing or empty.');
+if (!account) stop('The repository secret CLOUDFLARE_ACCOUNT_ID is missing or empty.');
+if (!/^[0-9a-f]{32}$/i.test(account.trim())) stop('CLOUDFLARE_ACCOUNT_ID should be the 32-character account ID from the Cloudflare dashboard (letters a-f and digits), not a name or an email.');
 
 const NAME = { worker: 'probe-app', db: 'probe-eu', bucket: 'probe-files-eu', kv: 'probe-app-session' };
 const api = async (method, path, body, headers = {}) => {
@@ -17,7 +21,7 @@ const api = async (method, path, body, headers = {}) => {
   const json = await res.json().catch(() => ({}));
   return { ok: res.ok && json.success !== false, status: res.status, result: json.result, errors: json.errors };
 };
-const fail = (what, r) => { console.error(`${what} failed (${r.status}): ${JSON.stringify(r.errors ?? r.result)}`); process.exit(1); };
+const fail = (what, r) => stop(`${what} failed (HTTP ${r.status}): ${JSON.stringify(r.errors ?? r.result ?? '').slice(0, 400)}`);
 
 // Database, locked to the EU
 let r = await api('GET', `/d1/database?name=${NAME.db}&per_page=100`);
@@ -30,7 +34,7 @@ if (!db) {
 }
 const dbInfo = await api('GET', `/d1/database/${db.uuid}`);
 const jurisdiction = dbInfo.result?.jurisdiction ?? db.jurisdiction;
-if (jurisdiction !== 'eu') { console.error(`Database ${NAME.db} exists but is not locked to the EU (jurisdiction: ${jurisdiction ?? 'none'}). Remove it or change NAME.db.`); process.exit(1); }
+if (jurisdiction !== 'eu') stop(`Database ${NAME.db} exists but is not locked to the EU (jurisdiction: ${jurisdiction ?? 'none'}). Remove it or change NAME.db.`);
 
 // File store, locked to the EU
 const EU = { 'cf-r2-jurisdiction': 'eu' };
@@ -63,4 +67,4 @@ writeFileSync('wrangler.jsonc', JSON.stringify({
   r2_buckets: [{ binding: 'RECORDINGS', bucket_name: NAME.bucket, jurisdiction: 'eu' }],
   observability: { enabled: true },
 }, null, 2));
-console.log(`Ready: database ${db.uuid} (eu), file store ${NAME.bucket} (eu), session store ${kv.id}.`);
+console.log(`::notice title=Cloudflare setup::Ready: database ${db.uuid} (eu), file store ${NAME.bucket} (eu), session store ${kv.id}.`);

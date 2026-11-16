@@ -23,17 +23,17 @@ jobs:
       PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.PUBLIC_CLERK_PUBLISHABLE_KEY }}
       PROBE_TARGET: cloudflare
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: bash cloudflare/step.sh Install npm ci
       - name: Make sure the EU database, file store and session store exist
         run: node cloudflare/setup.mjs
       - name: Build
-        run: npm run build
+        run: bash cloudflare/step.sh Build npm run build
       - name: Bring the database up to date
-        run: npx wrangler d1 migrations apply DB --remote
+        run: bash cloudflare/step.sh Database npx wrangler d1 migrations apply DB --remote
       - name: Deploy
-        run: npx wrangler deploy
+        run: bash cloudflare/step.sh Deploy npx wrangler deploy
