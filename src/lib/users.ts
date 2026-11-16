@@ -77,6 +77,7 @@ export async function me(ctx: APIContext | AstroGlobal): Promise<User | null> {
           DB.prepare('UPDATE invitations SET accepted_by = ? WHERE accepted_by = ?').bind(uid, old.id),
           DB.prepare('UPDATE access_requests SET user_id = ? WHERE user_id = ?').bind(uid, old.id),
           DB.prepare('UPDATE notifications SET user_id = ? WHERE user_id = ?').bind(uid, old.id),
+          DB.prepare('UPDATE agent_keys SET created_by = ? WHERE created_by = ?').bind(uid, old.id),
         ]);
         u = await DB.prepare('SELECT * FROM users WHERE id = ?').bind(uid).first<User>();
       }
