@@ -1,6 +1,6 @@
 # Deploys a copy of Probe to Nassau's own Cloudflare account, with the database and files locked to the EU.
-# Started by hand (Actions → Deploy to Cloudflare → Run workflow), or by a change to the files under cloudflare/.
-# Ordinary changes to the app don't start it.
+# Runs on every change to main, so the Cloudflare deployment always has the same code as the one on Webflow Cloud.
+# It can also be started by hand (Actions → Deploy to Cloudflare → Run workflow).
 # The live app on Webflow Cloud is not touched by this.
 #
 # Needs, under Settings → Secrets and variables → Actions:
@@ -11,7 +11,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['cloudflare/**', '.github/workflows/cloudflare.yml']
 permissions:
   contents: read
 jobs:

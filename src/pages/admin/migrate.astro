@@ -1,0 +1,72 @@
+---
+// Admin → Move data: pulls everything from the live Probe (probe.nassau.se) into this deployment.
+import AdminShell from '../../components/AdminShell.astro';
+import { requireOwner } from '../../lib/admin';
+import { migrateKey, migrateSource } from '../../lib/migrate';
+import { url } from '../../lib/server';
+
+const user = await requireOwner(Astro);
+if (user instanceof Response) return user;
+const from = new URL(migrateSource());
+const isSource = from.host === Astro.url.host;
+const ready = !!migrateKey();
+---
+<AdminShell user={user} title="Move data" tab="dashboard">
+  <section class="z-card" data-migrate data-endpoint={url('admin/migrate-step')} data-no-i18n>
+    <div class="z-card-head"><span class="z-card-title">Copy from {from.host}</span><span class="z-card-hint">into {Astro.url.host}</span></div>
+    {isSource && <p class="z-claim"><span class="z-st warn"></span>This is the deployment the data comes from. Open this page on the new deployment.</p>}
+    {!isSource && !ready && <p class="z-claim"><span class="z-st warn"></span>Set the secret PROBE_MIGRATE_KEY (24 characters or more) on both deployments, with the same value, then reload.</p>}
+    {!isSource && ready && (
+      <>
+        <p class="muted" style="margin:0;font-size:13px">Copies every table and stored file. It can be run again at any time: rows are updated or added, files that are already here are skipped, and nothing is deleted on either side.</p>
+        <div><button class="z-btn z-btn-primary" type="button" data-migrate-go>Copy everything</button></div>
+        <p class="z-claim" data-migrate-status hidden role="status"></p>
+        <table class="z-table" data-migrate-table hidden><thead><tr><th>Table</th><th class="num">There</th><th class="num">Here before</th><th class="num">Read</th><th class="num">Written</th></tr></thead><tbody></tbody></table>
+      </>
+    )}
+  </section>
+</AdminShell>
+<script>
+  const card = document.querySelector<HTMLElement>('[data-migrate]');
+  const go = card?.querySelector<HTMLButtonElement>('[data-migrate-go]');
+  const status = card?.querySelector<HTMLElement>('[data-migrate-status]');
+  const table = card?.querySelector<HTMLTableElement>('[data-migrate-table]');
+  if (card && go && status && table) {
+    const call = async (body: unknown) => {
+      for (let attempt = 0; ; attempt++) {
+        const res = await fetch(card.dataset.endpoint!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        const j: any = await res.json().catch(() => ({}));
+        if (res.ok) return j;
+        if (attempt >= 2) throw new Error(j.error || `HTTP ${res.status}`);
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    };
+    const say = (t: string, cls = '') => { status.hidden = false; status.className = `z-claim ${cls}`; status.textContent = t; };
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      try {
+        say('Reading what is there …');
+        const { tables } = await call({ what: 'tables' });
+        const body = table.tBodies[0]; body.innerHTML = ''; table.hidden = false;
+        const cells = new Map<string, HTMLTableRowElement>();
+        for (const t of tables) { const tr = body.insertRow(); tr.innerHTML = `<td></td><td class="num">${t.rows}</td><td class="num">${t.here ?? '—'}</td><td class="num">0</td><td class="num">0</td>`; tr.cells[0].textContent = t.name; cells.set(t.name, tr); }
+        let total = 0;
+        for (const t of tables) {
+          if (t.here === null) { cells.get(t.name)!.cells[3].textContent = 'no such table here'; continue; }
+          let after = 0, read = 0, written = 0, more = true;
+          while (more) {
+            say(`Copying ${t.name} … ${read} of ${t.rows}`);
+            const r = await call({ what: 'rows', table: t, after });
+            read += r.read; written += r.written; after = r.next; more = r.more && r.read > 0;
+            const tr = cells.get(t.name)!; tr.cells[3].textContent = String(read); tr.cells[4].textContent = String(written);
+          }
+          total += read;
+        }
+        let cursor = '', copied = 0, skipped = 0;
+        do { say(`Copying files … ${copied} copied, ${skipped} already here`); const r = await call({ what: 'files', cursor }); copied += r.copied; skipped += r.skipped; cursor = r.cursor || ''; } while (cursor);
+        say(`Done. ${total} rows read across ${tables.length} tables; ${copied} files copied, ${skipped} already here.`, 'ok');
+      } catch (e: any) { say('Stopped: ' + (e?.message || e)); }
+      finally { go.disabled = false; }
+    });
+  }
+</script>
