@@ -70,7 +70,9 @@
 
     function frame(ms) {
       if (ms - lastColor > 1000) { colors(); lastColor = ms; }
-      var t = ms / 1000, S = Math.max(420 * scale, Math.min(W, 1040 * scale)), base = 0.12 + 1.18 * strength;
+      // Time comes from the clock, not from when the page loaded, so the ribbon is in the same place on every page
+      // and carries on where it was when you move between them. (Reduced motion: one fixed moment.)
+      var t = reduce && reduce.matches ? 12 : (Date.now() % 86400000) / 1000, S = Math.max(420 * scale, Math.min(W, 1040 * scale)), base = 0.12 + 1.18 * strength;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H); spots(t);
       ctx.lineCap = 'round';
       for (var i = 0; i < U; i++) {
@@ -115,7 +117,7 @@
       }
     }
     function loop(t) { raf = requestAnimationFrame(loop); if (t - last < 33) return; last = t; frame(t); }
-    function run() { cancelAnimationFrame(raf); size(); colors(); if (reduce && reduce.matches) frame(12000); else raf = requestAnimationFrame(loop); }
+    function run() { cancelAnimationFrame(raf); size(); colors(); if (reduce && reduce.matches) frame(12000); else { frame(performance.now()); raf = requestAnimationFrame(loop); } }
     window.addEventListener('resize', function () { size(); if (reduce && reduce.matches) frame(12000); });
     document.addEventListener('visibilitychange', function () { if (document.hidden) cancelAnimationFrame(raf); else run(); });
     if (reduce && reduce.addEventListener) reduce.addEventListener('change', run);
