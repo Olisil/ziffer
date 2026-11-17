@@ -36,6 +36,7 @@ const snippet = `<script defer src="${src}" data-site="${siteKey}"></script>`;
       waiting: function (s, h) { return 'Väntar på ett besök. <a href="' + s + '" target="_blank" rel="noopener">Öppna ' + h + '</a> i en ny flik och klicka runt.'; },
       noLoad: function (h, e) { return 'Kunde inte ladda ' + h + (e ? ' (' + e + ')' : '') + '. Livetestet nedan fungerar ändå.'; },
       found: function (h, head) { return 'Koden hittades på ' + h + (head ? ', i head' : '') + '.'; },
+      inert: function (h, w) { return 'Koden finns på ' + h + ', men ligger inuti ' + (w === 'comment' ? 'en HTML-kommentar' : 'ett &lt;' + w + '&gt;-block') + ', så webbläsaren kör den aldrig. Flytta den till en egen rad utanför' + (w === 'comment' ? ' kommentaren' : ', före raden med &lt;' + w + '&gt;,') + ' och publicera sajten.'; },
       otherKey: function (h, k) { return 'Det finns en Probe-kod på ' + h + ', men med en annan sajtnyckel' + (k ? ' (' + k + ')' : '') + '. Byt ut den mot koden ovan.'; },
       missing: function (h) { return 'Koden finns inte i den publicerade HTML-koden på ' + h + ' än. Klistra in den i head-koden och publicera sajten.'; },
       works: function (p, ago, b) { return 'Det fungerar: ett besök på <b>' + p + '</b> registrerades ' + (ago < 5 ? 'nyss' : 'för ' + ago + ' s sedan') + (b ? ' (' + b + ')' : '') + '. Datan syns direkt i översikten.'; },
@@ -47,6 +48,7 @@ const snippet = `<script defer src="${src}" data-site="${siteKey}"></script>`;
       waiting: function (s, h) { return 'Waiting for a visit. <a href="' + s + '" target="_blank" rel="noopener">Open ' + h + '</a> in a new tab and click around.'; },
       noLoad: function (h, e) { return 'Couldn’t load ' + h + (e ? ' (' + e + ')' : '') + '. The live test below still works.'; },
       found: function (h, head) { return 'Snippet found on ' + h + (head ? ', in the head' : '') + '.'; },
+      inert: function (h, w) { return 'The snippet is on ' + h + ', but inside ' + (w === 'comment' ? 'an HTML comment' : 'a &lt;' + w + '&gt; block') + ', so browsers never run it. Move it to its own line outside' + (w === 'comment' ? ' the comment' : ', above the &lt;' + w + '&gt; line,') + ' and publish the site.'; },
       otherKey: function (h, k) { return 'A Probe snippet is on ' + h + ', but with another site key' + (k ? ' (' + k + ')' : '') + '. Replace it with the one above.'; },
       missing: function (h) { return 'The snippet isn’t in the published HTML of ' + h + ' yet. Paste it into the head code and publish the site.'; },
       works: function (p, ago, b) { return 'It works: a visit to <b>' + p + '</b> was recorded ' + (ago < 5 ? 'just now' : ago + ' s ago') + (b ? ' (' + b + ')' : '') + '. Data appears on the dashboard right away.'; },
@@ -72,6 +74,7 @@ const snippet = `<script defer src="${src}" data-site="${siteKey}"></script>`;
           if (first) {
             var h = d.html;
             if (!h || h.error) set(box, 'html', 'warn', T.noLoad(host, h && h.error ? esc(h.error) : ''));
+            else if (h.found && h.keyMatches && h.inert) set(box, 'html', 'bad', T.inert(host, h.inert));
             else if (h.found && h.keyMatches) set(box, 'html', 'ok', T.found(host, h.inHead));
             else if (h.found) set(box, 'html', 'bad', T.otherKey(host, h.otherKeys[0] ? esc(h.otherKeys[0]) : ''));
             else set(box, 'html', 'bad', T.missing(host));

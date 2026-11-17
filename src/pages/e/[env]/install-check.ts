@@ -10,15 +10,28 @@ async function scanHtml(domain: string, key: string) {
   try {
     const res = await fetch(target, { redirect: 'follow', headers: { 'user-agent': 'ProbeInstallCheck/1.0 (+https://probe.nassau.se)', accept: 'text/html' }, signal: AbortSignal.timeout(8000) });
     const html = (await res.text()).slice(0, 3_000_000);
-    const tags = [...html.matchAll(/<script\b[^>]*\bsrc=["']([^"']*\/z\.js)["'][^>]*>/gi)];
+    const TAG = /<script\b[^>]*\bsrc=["']([^"']*\/z\.js)["'][^>]*>/gi;
+    const tags = [...html.matchAll(TAG)];
     const keys = tags.map((m) => /data-site=["']([^"']+)["']/i.exec(m[0])?.[1] ?? null);
+    // A snippet pasted inside a comment or a <style>, <noscript> etc. block is in the HTML but never runs.
+    // Remove those blocks the way a browser would skip them, and see whether the snippet for this key survives.
+    const hasKey = (h: string) => [...h.matchAll(TAG)].some((m) => /data-site=["']([^"']+)["']/i.exec(m[0])?.[1] === key);
+    let inert: string | null = null;
+    if (hasKey(html)) {
+      let rest = html.replace(/<!--[\s\S]*?-->/g, '');
+      if (!hasKey(rest)) inert = 'comment';
+      else for (const el of ['style', 'noscript', 'template', 'textarea', 'title']) {
+        rest = rest.replace(new RegExp(`<${el}\\b[^>]*>[\\s\\S]*?</${el}\\s*>`, 'gi'), '');
+        if (!hasKey(rest)) { inert = el; break; }
+      }
+    }
     return {
       url: res.url || target, status: res.status,
       found: tags.length > 0, keyMatches: keys.includes(key), otherKeys: keys.filter((k) => k && k !== key),
-      count: tags.length, inHead: tags.length > 0 && html.search(/<\/head>/i) > html.search(/\/z\.js/i),
+      count: tags.length, inHead: tags.length > 0 && html.search(/<\/head>/i) > html.search(/\/z\.js/i), inert,
     };
   } catch (e: any) {
-    return { url: target, status: 0, found: false, keyMatches: false, otherKeys: [], count: 0, inHead: false, error: String(e?.message || e).slice(0, 160) };
+    return { url: target, status: 0, found: false, keyMatches: false, otherKeys: [], count: 0, inHead: false, inert: null, error: String(e?.message || e).slice(0, 160) };
   }
 }
 
