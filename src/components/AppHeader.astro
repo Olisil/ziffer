@@ -5,6 +5,8 @@ import Icon from './Icon.astro';
 import SiteIcon from './SiteIcon.astro';
 import { db, rangeOf, rangeQuery, url, type Environment, type Project } from '../lib/server';
 import { isServiceOwner, me } from '../lib/users';
+import { newsFor } from '../lib/news';
+import WhatsNew from './WhatsNew.astro';
 
 interface Props {
   projects: Project[];
@@ -30,6 +32,7 @@ const noRange = (k: string) => k === 'settings' || k === 'versions' || k === 'au
 const viewer = await me(Astro).catch(() => null);
 const unread = viewer ? ((await db().prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').bind(viewer.id).first<{ n: number }>())?.n ?? 0) : 0;
 const admin = isServiceOwner(viewer);
+const news = await newsFor(viewer, projects).catch(() => null);
 const kindLabel = (k: string) => (k === 'web' ? 'Web' : 'Virtual tour');
 const initial = (s?: string) => (s || '?').trim().charAt(0).toUpperCase();
 // Each project is pictured by its first website's favicon.
@@ -113,3 +116,4 @@ if (projects.length) {
     ))}
   </nav>
 )}
+{news && <WhatsNew news={news} />}

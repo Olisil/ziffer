@@ -1,0 +1,35 @@
+---
+// Shown once per person after a larger update (src/lib/news.ts decides what and to whom).
+import { url } from '../lib/server';
+import type { NewsView } from '../lib/news';
+interface Props { news: NewsView }
+const { news } = Astro.props;
+---
+<dialog class="z-news" id="z-news" aria-labelledby="z-news-title" data-seen={url('api/news-seen')}>
+  <form method="dialog" class="z-news-x"><button type="submit" aria-label="Close">×</button></form>
+  <div class="z-news-kicker">{news.label}</div>
+  <h2 class="z-news-title" id="z-news-title">New in Probe</h2>
+  <ul class="z-news-list">
+    {news.items.map((it) => (
+      <li>
+        <b>{it.title}</b>
+        <span>{it.text}</span>
+        {it.href && <a href={it.href} data-news-link>{`${it.linkLabel} →`}</a>}
+      </li>
+    ))}
+  </ul>
+  <form method="dialog" class="z-news-foot"><button class="z-btn z-btn-primary" type="submit" autofocus>Okay</button></form>
+</dialog>
+<script is:inline>
+(function () {
+  var d = document.getElementById('z-news');
+  if (!d || !d.showModal) return;
+  var seen = function () { try { fetch(d.getAttribute('data-seen'), { method: 'POST', keepalive: true }); } catch (e) {} };
+  d.addEventListener('close', seen);
+  d.addEventListener('click', function (e) {
+    if (e.target === d) d.close();                      // a click on the backdrop
+    else if (e.target.closest && e.target.closest('[data-news-link]')) seen();
+  });
+  d.showModal();
+})();
+</script>

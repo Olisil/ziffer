@@ -333,6 +333,13 @@ export const SV: Record<string, string> = {
   'creates projects and edits everything; their projects run on Studio at no cost.': 'skapar projekt och ändrar allt; deras projekt körs på Studio utan kostnad.',
   'is the same, with each project on its own plan: Free, Starter or Studio.': 'är samma sak, där varje projekt har sin egen plan: Free, Starter eller Studio.',
   'Edits everything, projects on Studio at no cost': 'Ändrar allt, projekt på Studio utan kostnad', 'Edits everything, each project has its own plan': 'Ändrar allt, varje projekt har egen plan',
+  'New in Probe': 'Nytt i Probe', 'November 2026': 'November 2026', 'Okay': 'Okej',
+  'Your data is now stored in the EU': 'Din data lagras nu i EU', 'Statistics and page snapshots are kept in data centres inside the EU.': 'Statistik och sidbilder ligger i datacenter inom EU.',
+  'Plans per project': 'Planer per projekt', 'Accounts are free. Each project has its own plan: Free, Starter or Studio. Invite as many people as you like.': 'Konton är gratis. Varje projekt har en egen plan: Free, Starter eller Studio. Bjud in så många du vill.',
+  'See the project’s plan →': 'Se projektets plan →', 'Statistics for virtual tours': 'Statistik för virtuella visningar',
+  'Visits, time per room and a heatmap on the floor plan for Intus tours.': 'Besök, tid per rum och värmekarta på planritningen för Intus-visningar.',
+  'Let your AI read the statistics': 'Låt din AI läsa statistiken', 'Create a read-only key in the project’s settings and connect Claude or another agent.': 'Skapa en läsnyckel i projektets inställningar och koppla Claude eller en annan agent.',
+  'Create a key →': 'Skapa nyckel →',
   // Misc
   'Sign in': 'Logga in', 'Sign up': 'Registrera dig', 'Close': 'Stäng', 'Cancel': 'Avbryt', 'Back': 'Tillbaka', 'Delete': 'Radera', 'Yes': 'Ja', 'No': 'Nej', 'Loading…': 'Laddar…',
   'Free for your first site · Made in Stockholm': 'Gratis för din första sajt · Gjord i Stockholm',

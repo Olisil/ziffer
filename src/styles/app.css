@@ -973,3 +973,19 @@ html.theme-dark .z-site-ico .lt:has(+ .dk) { display: none; }
 .z-usage-bar { display: block; height: 6px; border-radius: 99px; background: var(--_theme---surface-raised); overflow: hidden; }
 .z-usage-bar i { display: block; height: 100%; min-width: 2px; border-radius: 99px; background: var(--z-blue); }
 .z-usage-bar.full i { background: var(--z-coral); }
+
+/* What's new: shown once after a larger update */
+.z-news { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 28px; border-radius: 20px; border: 1px solid var(--_theme---border); background: var(--_theme---surface); color: var(--_theme---text); box-shadow: 0 40px 80px -30px rgba(0, 0, 0, 0.45); }
+.z-news::backdrop { background: color-mix(in srgb, #000 45%, transparent); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.z-news-x { position: absolute; top: 14px; right: 14px; margin: 0; }
+.z-news-x button { width: 32px; height: 32px; border: 0; border-radius: 10px; background: transparent; color: var(--_theme---text-muted); font-size: 20px; line-height: 1; cursor: pointer; }
+.z-news-x button:hover { background: var(--_theme---surface-raised); color: var(--_theme---text); }
+.z-news-kicker { color: var(--_theme---accent); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }
+.z-news-title { font-family: 'Hubot Sans', Inter, ui-sans-serif, system-ui, sans-serif; font-size: 26px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 20px; }
+.z-news-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.z-news-list li { display: flex; flex-direction: column; gap: 4px; padding: 14px 0; border-top: 1px solid var(--_theme---border); font-size: 14px; line-height: 1.5; }
+.z-news-list b { font-size: 15px; font-weight: 600; }
+.z-news-list span { color: var(--_theme---text-muted); }
+.z-news-list a { color: var(--_theme---accent); font-weight: 500; text-decoration: none; align-self: flex-start; }
+.z-news-list a:hover { text-decoration: underline; }
+.z-news-foot { display: flex; justify-content: flex-end; margin: 12px 0 0; padding-top: 16px; border-top: 1px solid var(--_theme---border); }
