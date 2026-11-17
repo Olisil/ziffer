@@ -1,6 +1,7 @@
 ---
 import '../styles/app.css';
 import { THEME_SCRIPT } from '../lib/head-scripts';
+import FABRIC from '../../public/fabric.js?raw';
 interface Props { title?: string }
 const { title } = Astro.props;
 const assets = (import.meta.env.ASSETS_PREFIX || import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
@@ -22,7 +23,8 @@ const assets = (import.meta.env.ASSETS_PREFIX || import.meta.env.BASE_URL || '/'
     <script is:inline set:html={THEME_SCRIPT} />
   </head>
   <body>
+    {/* First thing in the body and inline, so the corner animation is drawn before the first paint of every page. */}
+    <script is:inline data-strength="0.1" data-scale="0.8" data-mono set:html={FABRIC} />
     <slot />
-    <script is:inline defer src={`${assets}/fabric.js`} data-strength="0.1" data-scale="0.8" data-mono></script>
   </body>
 </html>

@@ -1,12 +1,14 @@
 /* Probe: a slowly twisting ribbon of plus signs in the top-left corner (canvas, no dependencies).
-   <script defer src="/app/fabric.js" data-strength="0.5"></script>
+   Load it with a script tag: defer, src="/app/fabric.js", data-strength="0.5".
+   (No closing script tag may appear anywhere in this file: the app inlines it.)
      data-strength  0..1   how visible it is
      data-scale     0.5..1.5  size of the ribbon (default 1)
      data-mono      present = greyscale: text colour only, no heat colours (used inside the app, next to data)
    Near pluses are larger than far ones. Now and then a region warms up like a heatmap.
-   Still image with prefers-reduced-motion, paused while the tab is hidden. */
+   Still image with prefers-reduced-motion, paused while the tab is hidden.
+   The app inlines this file at the top of <body> (src/layouts/App.astro); the public site loads it with defer. */
 (function () {
-  if (window.__probeFabric) return; window.__probeFabric = 1;
+  if (window.__probeFabric) return; window.__probeFabric = (window.performance && performance.now()) || 1;
   var me = document.currentScript;
   var num = function (name, d) { var v = parseFloat((me && me.getAttribute(name)) || ''); return isFinite(v) ? v : d; };
   var strength = Math.max(0, Math.min(1, num('data-strength', 0.35)));
@@ -123,5 +125,7 @@
     if (reduce && reduce.addEventListener) reduce.addEventListener('change', run);
     run();
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  // Placed inline at the top of <body> (the app does this) it draws before the page's first paint, so moving
+  // between pages shows no gap. Loaded with defer from <head> (the public site) it waits for the document.
+  if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
 })();

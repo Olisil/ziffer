@@ -6,7 +6,7 @@ export type ProjectPlan = 'free' | 'starter' | 'studio';
 export const PLAN_ORDER: ProjectPlan[] = ['free', 'starter', 'studio'];
 export type Limits = { name: string; sessions: number; environments: number; retentionDays: number; tours: boolean; agents: boolean; snapshotPages: number };
 export const PLANS: Record<ProjectPlan, Limits> = {
-  free: { name: 'Free', sessions: 2_000, environments: 1, retentionDays: 30, tours: false, agents: false, snapshotPages: 25 },
+  free: { name: 'Free', sessions: 1_000, environments: 1, retentionDays: 30, tours: false, agents: false, snapshotPages: 25 },
   starter: { name: 'Starter', sessions: 10_000, environments: 3, retentionDays: 90, tours: true, agents: true, snapshotPages: 100 },
   studio: { name: 'Studio', sessions: 50_000, environments: 10, retentionDays: 365, tours: true, agents: true, snapshotPages: 300 },
 };

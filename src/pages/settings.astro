@@ -134,7 +134,7 @@ const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (use
               <div class="z-set-row"><h3>Your projects</h3>
                 {projects.length === 0 && <p class="muted">None yet.</p>}
                 <ul class="z-set-projects">
-                  {data.map(({ p, a, envs }) => (
+                  {data.map(({ p, a, envs, st }) => (
                     <li><SiteIcon env={envs.find((e) => e.kind === 'web' && e.domain)} name={p.name} size={22} /><span><b>{p.name}</b><span class="muted">{a.role === 'owner' ? 'Project owner' : 'Member'} · {a.access === 'pro' ? 'Pro' : 'Basic'} · {envs.length} {envs.length === 1 ? 'environment' : 'environments'} · {st.limits.name}</span></span><a class="z-link" style="margin-left:auto" href={url(`p/${p.id}/settings`)}>Project settings</a></li>
                   ))}
                 </ul>
