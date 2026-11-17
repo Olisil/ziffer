@@ -193,7 +193,7 @@ export const SV: Record<string, string> = {
   'No form input, typed text or query strings are recorded — only paths, click positions and short element selectors.': 'Ingen formulärdata, inskriven text eller frågesträngar sparas – bara sökvägar, klickpositioner och korta elementväljare.',
   'For heatmaps, a visitor’s browser occasionally sends a copy of the page layout (at most every few days per page). Scripts and form values are removed first; add': 'För värmekartor skickar en besökares webbläsare ibland en kopia av sidans layout (som mest med några dagars mellanrum per sida). Skript och formulärvärden tas bort först; lägg till',
   'to any element that should be blanked out.': 'på element som ska maskas.',
-  'Data stays in this Webflow Cloud app’s storage; moving analytics to EU-only storage is planned.': 'Datan ligger i den här Webflow Cloud-appens lagring; att flytta statistiken till lagring enbart inom EU är planerat.',
+  'Statistics and page snapshots are stored in data centres in the EU.': 'Statistik och sidbilder lagras i datacenter inom EU.',
   'Delete environment': 'Radera miljö', 'Type': 'Skriv', 'to confirm': 'för att bekräfta', 'Virtual tour environment': 'Miljö för virtuell visning', 'Connect the Intus tour statistics': 'Koppla statistiken för Intus-visningar',
   'This environment will show tour visits, time per room, walking paths and floor-plan heatmaps. The data already lives in the': 'Den här miljön kommer att visa besök i visningen, tid per rum, gångvägar och värmekartor på planritningen. Datan finns redan i tjänsten',
   'service; the next step links it here so you sign in once and see tours next to websites.': '; nästa steg kopplar den hit så att du loggar in en gång och ser visningar bredvid webbplatser.',

@@ -140,14 +140,14 @@ const tourMeta = `<meta name="intus-stats" content="${tourEndpoint}">`;
         <li>No cookies and nothing stored in the visitor’s browser. Each visit gets a random number that is gone when the tab closes.</li>
         <li>A visit holds the time spent, the rooms entered, where the visitor walked and looked in the tour, the kind of device and the country. No IP address, name or contact details.</li>
         <li>Visits can’t be linked to each other or to a person, and any single visit can be removed under Visits.</li>
-        <li>Data stays in this Webflow Cloud app’s storage; moving analytics to EU-only storage is planned.</li>
+        <li>Statistics and page snapshots are stored in data centres in the EU.</li>
       </ul>
       ) : (
       <ul class="muted" style="margin:0;padding-left:18px;font-size:13px;line-height:1.7">
         <li>No cookies or local identifiers that survive the tab. Visitors are counted with a hash that changes every day.</li>
         <li>No form input, typed text or query strings are recorded — only paths, click positions and short element selectors.</li>
         <li>For heatmaps, a visitor’s browser occasionally sends a copy of the page layout (at most every few days per page). Scripts and form values are removed first; add <code>data-ziffer-mask</code> to any element that should be blanked out.</li>
-        <li>Data stays in this Webflow Cloud app’s storage; moving analytics to EU-only storage is planned.</li>
+        <li>Statistics and page snapshots are stored in data centres in the EU.</li>
       </ul>
       )}
     </section>

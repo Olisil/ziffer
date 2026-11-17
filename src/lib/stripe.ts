@@ -93,6 +93,23 @@ export async function verifyWebhook(payload: string, header: string | null) {
   return sigs.some((s) => s.length === hex.length && [...s].every((c, i) => c === hex[i]));
 }
 
+/**
+ * Test and live mode are separate worlds in Stripe: customers and webhooks made in one don't exist in the other.
+ * When the secret key changes mode, forget the saved customers and card status and install a fresh webhook.
+ * Returns a note for the admin when something was reset.
+ */
+export async function syncStripeMode(origin: string): Promise<string | null> {
+  if (!stripeEnabled()) return null;
+  const now = stripeTestMode() ? 'test' : 'live', was = await getSetting('stripe_mode');
+  if (was === now) return null;
+  await setSetting('stripe_mode', now);
+  if (!was && now === 'test') return null;                       // first run on a test key: nothing to reset
+  await db().prepare('UPDATE projects SET stripe_customer = NULL, billing_status = NULL').run();
+  await db().prepare("DELETE FROM app_settings WHERE key IN ('stripe_webhook_id', 'stripe_webhook_secret', 'stripe_webhook_url')").run();
+  await installWebhook(origin);
+  return `Stripe is now in ${now} mode. Saved cards from ${now === 'live' ? 'test' : 'live'} mode were cleared and the webhook was installed again.`;
+}
+
 /* ---------- Project billing ---------- */
 
 export async function checkoutForProject(p: { id: string; name: string; stripe_customer?: string | null }, payer: { email: string | null; name: string | null }, origin: string) {

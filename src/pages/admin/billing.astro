@@ -4,7 +4,7 @@ import { requireOwner } from '../../lib/admin';
 import { runJobs } from '../../lib/jobs';
 import { fmt } from '../../lib/page';
 import { db, url } from '../../lib/server';
-import { getSetting, installWebhook, invoiceMonth, money, setSetting, stripeEnabled, stripeTestMode } from '../../lib/stripe';
+import { getSetting, installWebhook, invoiceMonth, money, setSetting, stripeEnabled, stripeTestMode, syncStripeMode } from '../../lib/stripe';
 import { effective, planPrices, PLANS, priceOf } from '../../lib/plans';
 import { appOrigin } from '../../lib/notify';
 import { mailEnabled } from '../../lib/mail';
@@ -41,6 +41,8 @@ if (Astro.request.method === 'POST') {
 }
 const price = await planPrices();
 const pricesSaved = !!(await getSetting('plan_prices'));
+// After a switch between Stripe's test and live mode: clear what belonged to the old mode and install the webhook again.
+try { const m = await syncStripeMode(appOrigin(Astro.request)); if (m) notice = notice ? `${notice} ${m}` : m; } catch (e) { if (!error) error = e instanceof Error ? e.message : 'Stripe could not be set up.'; }
 const hook = await getSetting('stripe_webhook_id');
 const lastJobs = Number((await getSetting('jobs_last')) || 0);
 const invoices = (await db().prepare(
@@ -65,7 +67,7 @@ const statusChip: Record<string, string> = { paid: 'good', failed: 'bad', open: 
       {!stripeEnabled() ? (
         <ol class="z-steps-s">
           <li>In Stripe, open <b>Developers → API keys</b> (start in test mode) and copy the secret key.</li>
-          <li>In Webflow Cloud, open the Probe app’s <b>Environment variables</b>, add <code>STRIPE_SECRET_KEY</code> as a secret, and redeploy.</li>
+          <li>In Cloudflare, open the worker <code>probe-app</code>, add <code>STRIPE_SECRET_KEY</code> under <b>Settings → Variables and Secrets</b> as a secret, and deploy.</li>
           <li>Come back here and save the plan prices — Probe then sets up its Stripe webhook by itself.</li>
         </ol>
       ) : (
