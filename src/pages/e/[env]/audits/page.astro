@@ -6,7 +6,7 @@ import ScoreRing from '../../../../components/ScoreRing.astro';
 import Sparkline from '../../../../components/Sparkline.astro';
 import { loadEnvPage, fmt } from '../../../../lib/page';
 import { db, url } from '../../../../lib/server';
-import { browserResults, excludedReason, queueAudit, type AuditRow, type Category, type Check } from '../../../../lib/audit';
+import { AUDIT_SORT_COOKIE, browserResults, excludedReason, latestAudits, parseAuditSort, queueAudit, sortAudits, type AuditRow, type Category, type Check } from '../../../../lib/audit';
 import { LANG_COOKIE, pickLang } from '../../../../lib/i18n';
 import { listVersions } from '../../../../lib/versions';
 
@@ -28,13 +28,18 @@ const parsed = (r?: AuditRow) => { try { return JSON.parse(r?.results || '{}') a
 const now = parsed(a), before = parsed(prev);
 const checks = now.checks ?? [];
 const prevStatus = new Map((before.checks ?? []).map((c) => [c.id, c.status]));
-// Every audited page, for jumping straight from one to the next (same idea as the page picker in Heatmaps).
-const pagesList = (await db().prepare(
-  `SELECT path, overall FROM audits a1 WHERE env_id = ? AND status = 'done'
-     AND ran_at = (SELECT MAX(ran_at) FROM audits a2 WHERE a2.env_id = a1.env_id AND a2.path = a1.path AND a2.status = 'done') ORDER BY path`,
-).bind(env.id).all<{ path: string; overall: number | null }>()).results;
+// Every audited page, for jumping straight from one to the next. Same order as the overview, where the columns can be clicked to sort.
+const allPages = await latestAudits(env.id);
+const sortBy = parseAuditSort(Astro.cookies.get(AUDIT_SORT_COOKIE)?.value);
+const titleOf = (r: AuditRow) => { try { return (JSON.parse(r.results || '{}').title || '') as string; } catch { return ''; } };
+const countedPages = sortAudits(allPages.filter((r) => !excludedReason(r)), sortBy);
+const otherPages = allPages.filter((r) => excludedReason(r));
+const excludedText = { missing: 'Page not found (404)', hidden: 'Kept out of search (noindex or robots.txt)' } as const;
+const pagesList = [...countedPages, ...otherPages];
 const at = pagesList.findIndex((p) => p.path === path);
 const prevPage = at > 0 ? pagesList[at - 1].path : null, nextPage = at >= 0 && at < pagesList.length - 1 ? pagesList[at + 1].path : null;
+const sortLabel = { path: 'Page', seo: 'SEO', aeo: 'AEO', tech: 'Tech', a11y: 'A11y', privacy: 'Privacy' }[sortBy.key];
+const pill = (n: number | null | undefined) => (n === null || n === undefined ? '' : n >= 85 ? 'good' : n >= 60 ? 'ok' : 'bad');
 const pageHref = (p: string) => url(`e/${env.id}/audits/page`) + `?path=${encodeURIComponent(p)}`;
 const versions = await listVersions(env.id, env.name);
 const versionOf = (t: number) => versions.find((v) => t >= v.from && t < v.to);
@@ -96,14 +101,35 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
       </div>
     </div>
     <section class="z-card z-au-pick">
-      <form method="get" action={url(`e/${env.id}/audits/page`)}>
-        <label class="z-menu-label" for="au-page" style="margin:0">Page</label>
-        <select id="au-page" class="z-select" name="path" data-page-pick>
-          {!pagesList.some((p) => p.path === path) && <option value={path} selected>{path}</option>}
-          {pagesList.map((p) => <option value={p.path} selected={p.path === path}>{p.path}{p.overall !== null ? ` · ${p.overall}` : ''}</option>)}
-        </select>
-        <noscript><button class="z-btn z-btn-secondary">Show</button></noscript>
-      </form>
+      <span class="z-menu-label" id="au-page-label">Page</span>
+      <details class="z-au-dd" data-page-dd>
+        <summary class="z-au-dd-btn" aria-labelledby="au-page-label au-page-cur">
+          <span class="z-au-dd-cur" id="au-page-cur"><b>{path}</b><span class="muted">{now.title || ''}</span></span>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        </summary>
+        <div class="z-au-dd-panel">
+          <div class="z-au-dd-col">
+            <div class="z-au-dd-row head"><span>Page</span>{(['seo', 'aeo', 'tech', 'a11y', 'privacy'] as const).map((k) => <span class={sortBy.key === k ? 'on' : ''}>{{ seo: 'SEO', aeo: 'AEO', tech: 'Tech', a11y: 'A11y', privacy: 'Privacy' }[k]}{sortBy.key === k && <i aria-hidden="true">{sortBy.dir === 'asc' ? ' ↑' : ' ↓'}</i>}</span>)}</div>
+            {countedPages.map((r) => (
+              <a class="z-au-dd-row" href={pageHref(r.path)} data-keep-tab aria-current={r.path === path ? 'page' : undefined}>
+                <span class="z-audit-page"><b>{r.path}</b><span class="muted">{titleOf(r)}</span></span>
+                {(['seo', 'aeo', 'tech', 'a11y', 'privacy'] as const).map((k) => <span class={`z-pill ${pill(r[k])}`}>{r[k] ?? '–'}</span>)}
+              </a>
+            ))}
+            {countedPages.length === 0 && <p class="muted">No scored pages yet.</p>}
+          </div>
+          {otherPages.length > 0 && (
+            <div class="z-au-dd-col side">
+              <div class="z-au-dd-row head"><span>Not counted in the scores</span></div>
+              {otherPages.map((r) => (
+                <a class="z-au-dd-row" href={pageHref(r.path)} data-keep-tab aria-current={r.path === path ? 'page' : undefined}>
+                  <span class="z-audit-page"><b>{r.path}</b><span class="muted">{excludedText[excludedReason(r)!]}</span></span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      </details>
       <nav class="z-au-step" aria-label="Pages">
         {prevPage ? <a class="z-btn z-btn-secondary" href={pageHref(prevPage)} data-keep-tab aria-label="Previous page" title={prevPage}>←</a> : <span class="z-btn z-btn-secondary" aria-disabled="true">←</span>}
         {nextPage ? <a class="z-btn z-btn-secondary" href={pageHref(nextPage)} data-keep-tab aria-label="Next page" title={nextPage}>→</a> : <span class="z-btn z-btn-secondary" aria-disabled="true">→</span>}
@@ -375,8 +401,12 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
     });
   });
   // Changing page keeps the tab you are on, so you can compare the same area across pages.
-  const picker = document.querySelector<HTMLSelectElement>('[data-page-pick]');
-  picker?.addEventListener('change', () => { location.href = `${picker.form!.action}?path=${encodeURIComponent(picker.value)}${location.hash}`; });
+  const dd = document.querySelector<HTMLDetailsElement>('[data-page-dd]');
+  if (dd) {
+    dd.addEventListener('toggle', () => { if (dd.open) dd.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest' }); });
+    document.addEventListener('click', (e) => { if (dd.open && !dd.contains(e.target as Node)) dd.open = false; });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && dd.open) { dd.open = false; dd.querySelector('summary')?.focus(); } });
+  }
   for (const l of document.querySelectorAll<HTMLAnchorElement>('[data-keep-tab]')) l.addEventListener('click', () => { l.hash = location.hash; });
   const first = tabs.find((b) => b.dataset.tab === location.hash.slice(1).replace(/^cat-/, ''));
   if (first) pick(first, false, false);

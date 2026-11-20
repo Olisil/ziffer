@@ -476,6 +476,7 @@ export const SV: Record<string, string> = {
   'All pages': 'Alla sidor',
   'Previous page': 'Föregående sida',
   'Next page': 'Nästa sida',
+  'No scored pages yet.': 'Inga poängsatta sidor än.',
   // Misc
   'Sign in': 'Logga in', 'Sign up': 'Registrera dig', 'Close': 'Stäng', 'Cancel': 'Avbryt', 'Back': 'Tillbaka', 'Delete': 'Radera', 'Yes': 'Ja', 'No': 'Nej', 'Loading…': 'Laddar…',
   'Free for your first site · Made in Stockholm': 'Gratis för din första sajt · Gjord i Stockholm',

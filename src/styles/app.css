@@ -1050,8 +1050,42 @@ html.theme-dark .z-site-ico .lt:has(+ .dk) { display: none; }
 
 /* Audit page: page picker (as in Heatmaps) with previous / next */
 .z-au-pick { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-.z-au-pick form { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 240px; }
-.z-au-pick .z-select { flex: 1; max-width: 420px; min-width: 0; }
+.z-au-pick { position: relative; }
+.z-au-dd { flex: 1; min-width: 220px; max-width: 520px; }
+.z-au-dd-btn { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 12px; min-height: 44px; border: 1px solid var(--_theme---border); border-radius: 10px; background: var(--_theme---surface); cursor: pointer; list-style: none; }
+.z-au-dd-btn::-webkit-details-marker { display: none; }
+.z-au-dd-btn:hover, .z-au-dd[open] > .z-au-dd-btn { border-color: var(--_theme---text-muted); }
+.z-au-dd-btn:focus-visible { outline: 2px solid var(--_theme---accent); outline-offset: 2px; }
+.z-au-dd-btn svg { flex: none; color: var(--_theme---text-muted); transition: transform .15s; }
+.z-au-dd[open] > .z-au-dd-btn svg { transform: rotate(180deg); }
+.z-au-dd-cur { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.z-au-dd-cur b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+.z-au-dd-cur .muted { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 0; min-width: 0; }
+.z-au-dd-panel { position: absolute; z-index: 40; top: calc(100% - 8px); left: 0; right: 0; display: grid; grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr); gap: 0 28px; padding: 16px 20px; max-height: min(70vh, 640px); overflow: auto;
+  background: var(--_theme---surface); border: 1px solid var(--_theme---border); border-radius: 16px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18); }
+.z-au-dd-col { min-width: 0; }
+.z-au-dd-col.side { border-left: 1px solid var(--_theme---border); padding-left: 28px; }
+.z-au-dd-col:only-child { grid-column: 1 / -1; }
+.z-au-dd-row { display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, 50px); gap: 8px; align-items: center; padding: 8px 10px; margin: 0 -10px; border-radius: 10px; text-decoration: none; color: inherit; font-size: 13.5px; }
+.z-au-dd-col.side .z-au-dd-row { grid-template-columns: minmax(0, 1fr); }
+.z-au-dd-col.side .z-au-dd-row b { font-weight: 500; color: var(--_theme---text-muted); }
+.z-au-dd-row.head { font-size: 11.5px; color: var(--_theme---text-muted); padding-top: 0; }
+.z-au-dd-row.head .on { color: var(--_theme---text); font-weight: 600; } .z-au-dd-row.head i { font-style: normal; }
+a.z-au-dd-row:hover { background: var(--_theme---surface-raised); }
+a.z-au-dd-row[aria-current="page"] { background: var(--_theme---surface-raised); box-shadow: inset 2px 0 0 var(--_theme---text); }
+.z-au-dd-row .z-pill { justify-content: center; min-width: 0; }
+.z-sort { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; }
+.z-sort:hover { color: var(--_theme---text); }
+.z-sort:focus-visible { outline: 2px solid var(--_theme---accent); outline-offset: 3px; border-radius: 4px; }
+[aria-sort="ascending"] > .z-sort, [aria-sort="descending"] > .z-sort { color: var(--_theme---text); font-weight: 600; }
+[aria-sort="ascending"] > .z-sort::after { content: "↑"; } [aria-sort="descending"] > .z-sort::after { content: "↓"; }
+@media (max-width: 760px) {
+  .z-au-dd-panel { grid-template-columns: 1fr; gap: 16px; padding: 14px; }
+  .z-au-dd-col.side { border-left: 0; padding-left: 0; border-top: 1px solid var(--_theme---border); padding-top: 14px; }
+  .z-au-dd-row { grid-template-columns: minmax(0, 1fr) repeat(5, 34px); gap: 4px; font-size: 13px; }
+  .z-au-dd-row .z-pill { padding: 3px 2px; font-size: 11.5px; }
+  .z-au-dd-cur .muted { display: none; }
+}
 .z-au-step { display: flex; gap: 6px; }
 .z-au-step .z-btn { min-width: 40px; justify-content: center; padding-inline: 12px; }
 .z-au-step [aria-disabled="true"] { opacity: 0.35; pointer-events: none; }

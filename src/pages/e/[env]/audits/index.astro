@@ -5,7 +5,7 @@ import AppHeader from '../../../../components/AppHeader.astro';
 import ScoreRing from '../../../../components/ScoreRing.astro';
 import { loadEnvPage, fmt } from '../../../../lib/page';
 import { db, url } from '../../../../lib/server';
-import { browserPending, excludedReason, latestAudits, queueAudit, type Check } from '../../../../lib/audit';
+import { AUDIT_SORT_COOKIE, browserPending, excludedReason, latestAudits, parseAuditSort, queueAudit, sortAudits, type Check } from '../../../../lib/audit';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
@@ -25,7 +25,10 @@ if (Astro.request.method === 'POST') {
 
 const all = await latestAudits(env.id);
 // Pages that answer 404 or are kept out of search are listed separately and left out of the averages and the fix list.
-const latest = all.filter((a) => !excludedReason(a));
+// The order is the visitor's own choice (click a column), remembered so the page picker on each audit follows it.
+const sort = parseAuditSort(Astro.cookies.get(AUDIT_SORT_COOKIE)?.value);
+const latest = sortAudits(all.filter((a) => !excludedReason(a)), sort);
+const cols = [['path', 'Page'], ['seo', 'SEO'], ['aeo', 'AEO'], ['tech', 'Tech'], ['a11y', 'A11y'], ['privacy', 'Privacy']] as const;
 const notCounted = all.filter((a) => excludedReason(a));
 const excludedText = { missing: 'Page not found (404)', hidden: 'Kept out of search (noindex or robots.txt)' } as const;
 const pending = (await db().prepare("SELECT path, trigger FROM audits WHERE env_id = ? AND status IN ('pending', 'running') ORDER BY queued").bind(env.id).all<{ path: string; trigger: string }>()).results;
@@ -141,14 +144,22 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
         {latest.length > 0 && <section class="z-card">
           <div class="z-card-head"><span class="z-card-title">Pages</span><span class="z-card-hint">Latest check of each page</span></div>
           <div class="z-audit-table" role="table">
-            <div class="z-audit-row head" role="row"><span>Page</span><span>SEO</span><span>AEO</span><span>Tech</span><span title="Accessibility">A11y</span><span>Privacy</span><span>Why it was checked</span><span></span></div>
+            <div class="z-audit-row head" role="row" data-sort-head data-cookie={AUDIT_SORT_COOKIE}>
+              {cols.map(([k, label]) => (
+                <span role="columnheader" aria-sort={sort.key === k ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                  <button type="button" class="z-sort" data-sort={k} title={k === 'a11y' ? 'Accessibility' : undefined}>{label}</button>
+                </span>
+              ))}
+              <span>Why it was checked</span><span></span>
+            </div>
+            <div data-sort-body>
             {latest.map((a) => {
               const p = prev.get(a.path);
               const d = (k: 'seo' | 'aeo' | 'tech') => (p ? (a[k] ?? 0) - (p[k] ?? 0) : 0);
               let title = '';
               try { title = JSON.parse(a.results || '{}').title || ''; } catch {}
               return (
-                <a class="z-audit-row" role="row" href={url(`e/${env.id}/audits/page?path=${encodeURIComponent(a.path)}`)}>
+                <a class="z-audit-row" role="row" href={url(`e/${env.id}/audits/page?path=${encodeURIComponent(a.path)}`)} data-path={a.path} data-seo={a.seo} data-aeo={a.aeo} data-tech={a.tech} data-a11y={a.a11y} data-privacy={a.privacy}>
                   <span class="z-audit-page"><b>{a.path}</b><span class="muted">{title}</span></span>
                   {(['seo', 'aeo', 'tech'] as const).map((k) => (
                     <span class={`z-pill ${tone(a[k])}`}>{a[k] ?? '–'}{d(k) !== 0 && <small class={d(k) > 0 ? 'up' : 'down'}>{d(k) > 0 ? '+' : ''}{d(k)}</small>}</span>
@@ -159,6 +170,7 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
                 </a>
               );
             })}
+            </div>
           </div>
         </section>}
 
@@ -187,6 +199,29 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
     )}
   </main>
 </App>
+<script>
+  // Click a column to order the pages by it; click again to turn the order around. The choice is remembered.
+  const head = document.querySelector<HTMLElement>('[data-sort-head]'), body = document.querySelector<HTMLElement>('[data-sort-body]');
+  if (head && body) {
+    const cells = [...head.querySelectorAll<HTMLElement>('[role="columnheader"]')];
+    const now = () => { const c = cells.find((x) => x.getAttribute('aria-sort') !== 'none'); return { key: c?.querySelector('button')?.dataset.sort ?? 'path', dir: c?.getAttribute('aria-sort') === 'descending' ? 'desc' : 'asc' }; };
+    for (const btn of head.querySelectorAll<HTMLButtonElement>('.z-sort')) btn.addEventListener('click', () => {
+      const cur = now(), key = btn.dataset.sort!, dir = cur.key === key ? (cur.dir === 'asc' ? 'desc' : 'asc') : 'asc', sign = dir === 'asc' ? 1 : -1;
+      const rows = [...body.querySelectorAll<HTMLElement>('[data-path]')];
+      const num = (r: HTMLElement) => (r.dataset[key] === undefined || r.dataset[key] === '' ? null : Number(r.dataset[key]));
+      rows.sort((x, y) => {
+        const byPath = x.dataset.path!.localeCompare(y.dataset.path!);
+        if (key === 'path') return sign * byPath;
+        const a = num(x), b = num(y);
+        if (a === null || b === null) return a === b ? byPath : a === null ? 1 : -1;
+        return sign * (a - b) || byPath;
+      });
+      for (const r of rows) body.appendChild(r);
+      for (const c of cells) c.setAttribute('aria-sort', c.contains(btn) ? (dir === 'asc' ? 'ascending' : 'descending') : 'none');
+      document.cookie = `${head.dataset.cookie}=${key}.${dir}; path=/; max-age=31536000; samesite=lax`;
+    });
+  }
+</script>
 <script>
   // While audits are waiting, run them one at a time and refresh when done.
   const box = document.querySelector<HTMLElement>('[data-audit-runner]');

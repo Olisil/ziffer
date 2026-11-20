@@ -523,6 +523,23 @@ export function excludedReason(a: Pick<AuditRow, 'http_status' | 'results'>): Ex
   return null;
 }
 
+/** How the audited pages are ordered. Chosen by clicking a column in the overview and kept in a cookie, so the page picker uses the same order. */
+export type AuditSort = { key: 'path' | 'seo' | 'aeo' | 'tech' | 'a11y' | 'privacy'; dir: 'asc' | 'desc' };
+export const AUDIT_SORT_COOKIE = 'probe-audit-sort';
+export function parseAuditSort(v?: string | null): AuditSort {
+  const m = /^(path|seo|aeo|tech|a11y|privacy)\.(asc|desc)$/.exec(v || '');
+  return m ? { key: m[1] as AuditSort['key'], dir: m[2] as AuditSort['dir'] } : { key: 'path', dir: 'asc' };
+}
+export function sortAudits<T extends Pick<AuditRow, 'path' | 'seo' | 'aeo' | 'tech' | 'a11y' | 'privacy'>>(rows: T[], s: AuditSort): T[] {
+  const sign = s.dir === 'asc' ? 1 : -1;
+  return [...rows].sort((x, y) => {
+    if (s.key === 'path') return sign * x.path.localeCompare(y.path);
+    const a = x[s.key], b = y[s.key];
+    if (a === null || a === undefined || b === null || b === undefined) return (a ?? null) === (b ?? null) ? x.path.localeCompare(y.path) : a === null || a === undefined ? 1 : -1; // untested pages last
+    return sign * (a - b) || x.path.localeCompare(y.path);
+  });
+}
+
 export async function latestAudits(envId: string) {
   return (await db().prepare(
     `SELECT * FROM audits a1 WHERE env_id = ? AND status = 'done'
