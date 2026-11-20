@@ -473,6 +473,9 @@ export const SV: Record<string, string> = {
   'No fonts, maps or players loaded from other companies': 'Inga typsnitt, kartor eller spelare laddas från andra företag',
   'Loading a font, map or player from another company gives that company each visitor’s IP address, even without a cookie.': 'Att ladda ett typsnitt, en karta eller en spelare från ett annat företag ger det företaget varje besökares IP-adress, även utan kaka.',
   'Host fonts on the site itself, and load maps and players only when the visitor clicks them.': 'Lägg typsnitten på den egna sajten, och ladda kartor och spelare först när besökaren klickar på dem.',
+  'All pages': 'Alla sidor',
+  'Previous page': 'Föregående sida',
+  'Next page': 'Nästa sida',
   // Misc
   'Sign in': 'Logga in', 'Sign up': 'Registrera dig', 'Close': 'Stäng', 'Cancel': 'Avbryt', 'Back': 'Tillbaka', 'Delete': 'Radera', 'Yes': 'Ja', 'No': 'Nej', 'Loading…': 'Laddar…',
   'Free for your first site · Made in Stockholm': 'Gratis för din första sajt · Gjord i Stockholm',

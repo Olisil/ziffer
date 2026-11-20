@@ -1,4 +1,5 @@
 ---
+import SiteIcon from '../../../../components/SiteIcon.astro';
 import App from '../../../../layouts/App.astro';
 import AppHeader from '../../../../components/AppHeader.astro';
 import ScoreRing from '../../../../components/ScoreRing.astro';
@@ -27,6 +28,14 @@ const parsed = (r?: AuditRow) => { try { return JSON.parse(r?.results || '{}') a
 const now = parsed(a), before = parsed(prev);
 const checks = now.checks ?? [];
 const prevStatus = new Map((before.checks ?? []).map((c) => [c.id, c.status]));
+// Every audited page, for jumping straight from one to the next (same idea as the page picker in Heatmaps).
+const pagesList = (await db().prepare(
+  `SELECT path, overall FROM audits a1 WHERE env_id = ? AND status = 'done'
+     AND ran_at = (SELECT MAX(ran_at) FROM audits a2 WHERE a2.env_id = a1.env_id AND a2.path = a1.path AND a2.status = 'done') ORDER BY path`,
+).bind(env.id).all<{ path: string; overall: number | null }>()).results;
+const at = pagesList.findIndex((p) => p.path === path);
+const prevPage = at > 0 ? pagesList[at - 1].path : null, nextPage = at >= 0 && at < pagesList.length - 1 ? pagesList[at + 1].path : null;
+const pageHref = (p: string) => url(`e/${env.id}/audits/page`) + `?path=${encodeURIComponent(p)}`;
 const versions = await listVersions(env.id, env.name);
 const versionOf = (t: number) => versions.find((v) => t >= v.from && t < v.to);
 const rank = { fail: 0, warn: 1, info: 2, pass: 3 } as const;
@@ -77,7 +86,30 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
 <App title={`${path} · Audit`}>
   <AppHeader projects={projects} project={project} environments={environments} env={env} tab="audits" devUser={devUser} readOnly={ctx.readOnlyReason} />
   <main class="z-main" style="max-width:1080px">
-    <nav class="z-story-nav"><a class="z-back" href={url(`e/${env.id}/audits`)}>← All audited pages</a></nav>
+    <div class="z-title-row">
+      <div class="z-title-id">
+        <SiteIcon env={env} name={env.name} size={44} />
+        <div>
+          <div class="z-eyebrow">{project.name} · {env.name}</div>
+          <h1 class="z-h1">Audits</h1>
+        </div>
+      </div>
+    </div>
+    <section class="z-card z-au-pick">
+      <form method="get" action={url(`e/${env.id}/audits/page`)}>
+        <label class="z-menu-label" for="au-page" style="margin:0">Page</label>
+        <select id="au-page" class="z-select" name="path" data-page-pick>
+          {!pagesList.some((p) => p.path === path) && <option value={path} selected>{path}</option>}
+          {pagesList.map((p) => <option value={p.path} selected={p.path === path}>{p.path}{p.overall !== null ? ` · ${p.overall}` : ''}</option>)}
+        </select>
+        <noscript><button class="z-btn z-btn-secondary">Show</button></noscript>
+      </form>
+      <nav class="z-au-step" aria-label="Pages">
+        {prevPage ? <a class="z-btn z-btn-secondary" href={pageHref(prevPage)} data-keep-tab aria-label="Previous page" title={prevPage}>←</a> : <span class="z-btn z-btn-secondary" aria-disabled="true">←</span>}
+        {nextPage ? <a class="z-btn z-btn-secondary" href={pageHref(nextPage)} data-keep-tab aria-label="Next page" title={nextPage}>→</a> : <span class="z-btn z-btn-secondary" aria-disabled="true">→</span>}
+      </nav>
+      <a class="z-link" href={url(`e/${env.id}/audits`)}>All pages</a>
+    </section>
 
     {!a ? (
       <section class="z-empty">
@@ -90,7 +122,7 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
         <header class="z-au-head">
           <div class="z-audit-title">
             <div class="z-eyebrow">Checked {fmt.date(a.ran_at!)} {fmt.time(a.ran_at!)} · {triggerText[a.trigger] ?? a.trigger}{versionOf(a.ran_at!) ? ` · ${versionOf(a.ran_at!)!.label}` : ''}</div>
-            <h1 class="z-h1">{path}</h1>
+            <h2 class="z-au-path">{path}</h2>
             <div class="muted">{now.title || 'No title'}</div>
             <div class="z-story-meta">
               <a class="z-link" href={a.url!} target="_blank" rel="noopener noreferrer">{a.url} ↗</a>
@@ -342,6 +374,10 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
       if (d) { e.preventDefault(); pick(tabs[(i + d + tabs.length) % tabs.length], true); }
     });
   });
+  // Changing page keeps the tab you are on, so you can compare the same area across pages.
+  const picker = document.querySelector<HTMLSelectElement>('[data-page-pick]');
+  picker?.addEventListener('change', () => { location.href = `${picker.form!.action}?path=${encodeURIComponent(picker.value)}${location.hash}`; });
+  for (const l of document.querySelectorAll<HTMLAnchorElement>('[data-keep-tab]')) l.addEventListener('click', () => { l.hash = location.hash; });
   const first = tabs.find((b) => b.dataset.tab === location.hash.slice(1).replace(/^cat-/, ''));
   if (first) pick(first, false, false);
 

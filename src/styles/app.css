@@ -1047,3 +1047,12 @@ html.theme-dark .z-site-ico .lt:has(+ .dk) { display: none; }
   .z-au-sum + .z-check-body { margin-left: 0; }
   .z-au-overall > b { font-size: 32px; }
 }
+
+/* Audit page: page picker (as in Heatmaps) with previous / next */
+.z-au-pick { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.z-au-pick form { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 240px; }
+.z-au-pick .z-select { flex: 1; max-width: 420px; min-width: 0; }
+.z-au-step { display: flex; gap: 6px; }
+.z-au-step .z-btn { min-width: 40px; justify-content: center; padding-inline: 12px; }
+.z-au-step [aria-disabled="true"] { opacity: 0.35; pointer-events: none; }
+.z-au-path { font-family: var(--font-display); font-size: 26px; line-height: 1.15; font-weight: 600; letter-spacing: -0.02em; margin: 6px 0 4px; overflow-wrap: anywhere; }
