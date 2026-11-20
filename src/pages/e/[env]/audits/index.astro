@@ -5,7 +5,7 @@ import AppHeader from '../../../../components/AppHeader.astro';
 import ScoreRing from '../../../../components/ScoreRing.astro';
 import { loadEnvPage, fmt } from '../../../../lib/page';
 import { db, url } from '../../../../lib/server';
-import { excludedReason, latestAudits, queueAudit, type Check } from '../../../../lib/audit';
+import { browserPending, excludedReason, latestAudits, queueAudit, type Check } from '../../../../lib/audit';
 
 const ctx = await loadEnvPage(Astro);
 if (ctx instanceof Response) return ctx;
@@ -37,6 +37,9 @@ const prevRows = (await db().prepare(
                        AND b.ran_at < (SELECT MAX(c.ran_at) FROM audits c WHERE c.env_id = a.env_id AND c.path = a.path AND c.status = 'done'))`,
 ).bind(env.id).all<{ path: string; seo: number; aeo: number; tech: number }>()).results;
 const prev = new Map(prevRows.map((r) => [r.path, r]));
+// Accessibility and privacy are tested in a browser as a second step, so some pages may not have them yet.
+const browserWaiting = pending.length ? [] : await browserPending(env.id);
+const avgOf = (k: 'a11y' | 'privacy') => { const xs = latest.map((r) => r[k]).filter((n): n is number => n !== null && n !== undefined); return xs.length ? Math.round(xs.reduce((x, y) => x + y, 0) / xs.length) : null; };
 const avg = (k: 'seo' | 'aeo' | 'tech') => (latest.length ? Math.round(latest.reduce((a, r) => a + (r[k] ?? 0), 0) / latest.length) : null);
 const avgPrev = (k: 'seo' | 'aeo' | 'tech') => {
   const xs = latest.map((r) => prev.get(r.path)?.[k] ?? r[k] ?? 0);
@@ -82,11 +85,18 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
       <b>SEO</b> is about being found in search, <b>AEO</b> about being understood and quoted by AI answer engines like ChatGPT, Perplexity and Google’s AI overviews, and{' '}
       <b>Technical</b> about the basics underneath. Open any page to see every check and how to fix it.
     </p>
+    <p class="muted z-lead">Each page is also opened in a real browser to test accessibility against WCAG, and what it stores and sends before and after a visitor answers the consent dialog.</p>
 
     {pending.length > 0 && (
       <div class="z-card z-audit-running" data-audit-runner={canEdit ? url(`e/${env.id}/audits/run`) : undefined}>
         <span class="z-spinner" aria-hidden="true"></span>
         <span><b>Checking {pending.length} {pending.length === 1 ? 'page' : 'pages'}…</b> <span class="muted">{pending.slice(0, 4).map((p) => p.path).join(', ')}{pending.length > 4 ? '…' : ''}</span></span>
+      </div>
+    )}
+    {browserWaiting.length > 0 && (
+      <div class="z-card z-audit-running" data-audit-runner={canEdit ? url(`e/${env.id}/audits/run`) : undefined} data-phase="browser">
+        <span class="z-spinner" aria-hidden="true"></span>
+        <span><b>Testing accessibility and privacy in a browser…</b> <span class="muted"><span data-left>{browserWaiting.length}</span> {browserWaiting.length === 1 ? 'page' : 'pages'} left, up to a minute each. You can leave this page; testing continues next time it is open.</span></span>
       </div>
     )}
     {errors.length > 0 && <p class="z-card" style="margin:0;color:var(--z-coral)">Couldn’t check {errors[0].path}: {errors[0].error}</p>}
@@ -103,6 +113,9 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
           <ScoreRing score={avg('seo')} label="SEO" delta={delta('seo')} />
           <ScoreRing score={avg('aeo')} label="AEO" delta={delta('aeo')} />
           <ScoreRing score={avg('tech')} label="Technical" delta={delta('tech')} />
+          <span class="z-audit-sep" aria-hidden="true"></span>
+          <ScoreRing score={avgOf('a11y')} label="Accessibility" />
+          <ScoreRing score={avgOf('privacy')} label="Privacy" />
           <div class="z-audit-scores-note muted">
             {latest.length ? `Average of the latest check of ${latest.length} ${latest.length === 1 ? 'page' : 'pages'}. The small number is the change since each page’s previous check.` : 'No page counts towards the scores yet.'}
             {notCounted.length > 0 && <> {`${notCounted.length} ${notCounted.length === 1 ? 'page isn’t' : 'pages aren’t'} counted: missing pages and pages kept out of search.`}</>}
@@ -128,7 +141,7 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
         {latest.length > 0 && <section class="z-card">
           <div class="z-card-head"><span class="z-card-title">Pages</span><span class="z-card-hint">Latest check of each page</span></div>
           <div class="z-audit-table" role="table">
-            <div class="z-audit-row head" role="row"><span>Page</span><span>SEO</span><span>AEO</span><span>Tech</span><span>Why it was checked</span><span></span></div>
+            <div class="z-audit-row head" role="row"><span>Page</span><span>SEO</span><span>AEO</span><span>Tech</span><span title="Accessibility">A11y</span><span>Privacy</span><span>Why it was checked</span><span></span></div>
             {latest.map((a) => {
               const p = prev.get(a.path);
               const d = (k: 'seo' | 'aeo' | 'tech') => (p ? (a[k] ?? 0) - (p[k] ?? 0) : 0);
@@ -140,6 +153,7 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
                   {(['seo', 'aeo', 'tech'] as const).map((k) => (
                     <span class={`z-pill ${tone(a[k])}`}>{a[k] ?? '–'}{d(k) !== 0 && <small class={d(k) > 0 ? 'up' : 'down'}>{d(k) > 0 ? '+' : ''}{d(k)}</small>}</span>
                   ))}
+                  {(['a11y', 'privacy'] as const).map((k) => <span class={`z-pill ${tone(a[k] ?? null)}`}>{a[k] ?? '–'}</span>)}
                   <span class="muted z-audit-why">{triggerText[a.trigger] ?? a.trigger} · {fmt.date(a.ran_at!)}</span>
                   <span class="z-sc-go" aria-hidden="true">›</span>
                 </a>
@@ -153,14 +167,14 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
             <div class="z-card-head"><span class="z-card-title">Not counted in the scores</span><span class="z-card-hint">Missing pages and pages kept out of search</span></div>
             <p class="muted" style="margin:0 0 8px;font-size:12.5px">These addresses got visits but either don’t exist or are deliberately hidden from search engines, so they don’t say anything about how the site is found. If a page here should be found, remove its noindex or add it back.</p>
             <div class="z-audit-table" role="table">
-              <div class="z-audit-row head" role="row"><span>Page</span><span>SEO</span><span>AEO</span><span>Tech</span><span>Why it isn’t counted</span><span></span></div>
+              <div class="z-audit-row head" role="row"><span>Page</span><span>SEO</span><span>AEO</span><span>Tech</span><span title="Accessibility">A11y</span><span>Privacy</span><span>Why it isn’t counted</span><span></span></div>
               {notCounted.map((a) => {
                 let title = '';
                 try { title = JSON.parse(a.results || '{}').title || ''; } catch {}
                 return (
                   <a class="z-audit-row z-audit-excluded" role="row" href={url(`e/${env.id}/audits/page?path=${encodeURIComponent(a.path)}`)}>
                     <span class="z-audit-page"><b>{a.path}</b><span class="muted">{title}</span></span>
-                    {(['seo', 'aeo', 'tech'] as const).map((k) => <span class="z-pill">{a[k] ?? '–'}</span>)}
+                    {(['seo', 'aeo', 'tech', 'a11y', 'privacy'] as const).map((k) => <span class="z-pill">{a[k] ?? '–'}</span>)}
                     <span class="muted z-audit-why">{excludedText[excludedReason(a)!]}</span>
                     <span class="z-sc-go" aria-hidden="true">›</span>
                   </a>
@@ -178,12 +192,16 @@ const lastRun = all.reduce((a, r) => Math.max(a, r.ran_at ?? 0), 0);
   const box = document.querySelector<HTMLElement>('[data-audit-runner]');
   if (box) {
     const endpoint = box.dataset.auditRunner!;
+    const browser = box.dataset.phase === 'browser', left = box.querySelector('[data-left]');
     const step = async (): Promise<void> => {
       try {
         const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
         const j = await r.json();
-        if (j.pending > 0 && j.ran > 0) return step();
-        if (j.pending > 0) { setTimeout(step, 4000); return; }
+        // Plain audits first: refresh as soon as they are done, so their results show while the browser tests carry on.
+        const more = browser ? j.pending + j.browser : j.pending;
+        if (browser && left) left.textContent = String(j.browser);
+        if (more > 0 && j.ran > 0) return step();
+        if (more > 0) { setTimeout(step, 4000); return; }
       } catch {}
       location.reload();
     };

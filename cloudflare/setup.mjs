@@ -74,6 +74,7 @@ writeFileSync('wrangler.jsonc', JSON.stringify({
   d1_databases: [{ binding: 'DB', database_name: NAME.db, database_id: db.uuid, migrations_dir: 'migrations' }],
   kv_namespaces: [{ binding: 'SESSION', id: kv.id }],
   r2_buckets: [{ binding: 'RECORDINGS', bucket_name: NAME.bucket, jurisdiction: 'eu' }],
+  browser: { binding: 'BROWSER' }, // headless browser for the accessibility and privacy audits
   observability: { enabled: true },
 }, null, 2));
 console.log(`::notice title=Cloudflare setup::Ready: database ${db.uuid} (eu), file store ${NAME.bucket} (eu), session store ${kv.id}.`);

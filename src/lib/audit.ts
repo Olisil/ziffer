@@ -5,6 +5,8 @@
 import { parse, type HTMLElement } from 'node-html-parser';
 import { APP_HOME, db, id } from './server';
 import { bucket } from './snapshots';
+import { env as cfEnv } from 'cloudflare:workers';
+import type { A11yResult, PrivacyResult } from './browser-audit';
 
 export type Status = 'pass' | 'warn' | 'fail' | 'info';
 export type Category = 'seo' | 'aeo' | 'tech';
@@ -13,7 +15,10 @@ export type AuditRow = {
   id: string; env_id: string; path: string; status: 'pending' | 'done' | 'error'; trigger: string; queued: number; ran_at: number | null;
   version_id: string | null; seo: number | null; aeo: number | null; tech: number | null; overall: number | null;
   url: string | null; http_status: number | null; fetch_ms: number | null; bytes: number | null; results: string | null; error: string | null;
+  a11y: number | null; privacy: number | null; browser_status: string | null; browser_ran: number | null; browser_tries: number; browser_results: string | null;
 };
+/** What the browser tests stored for one audit. A part is null when it hasn't run or couldn't; the error says why. */
+export type BrowserResults = { a11y: A11yResult | null; a11yError?: string; privacy: PrivacyResult | null; privacyError?: string };
 
 const UA = 'Mozilla/5.0 (compatible; ProbeAudit/1.0; +https://probe.nassau.se/app)';
 const AI_BOTS = ['GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'Claude-SearchBot', 'PerplexityBot', 'Google-Extended', 'CCBot', 'Applebot-Extended'];
@@ -420,10 +425,83 @@ export async function runAudit(a: AuditRow) {
   const before = await DB.prepare("SELECT overall FROM audits WHERE env_id = ? AND path = ? AND status = 'done' ORDER BY ran_at DESC LIMIT 1").bind(a.env_id, a.path).first<{ overall: number | null }>();
   await DB.prepare(`UPDATE audits SET status = 'done', ran_at = ?, version_id = ?, seo = ?, aeo = ?, tech = ?, overall = ?, url = ?, http_status = ?, fetch_ms = ?, bytes = ?, results = ?, error = NULL WHERE id = ?`)
     .bind(Date.now(), version, seo, aeo, tech, overall, res.url, res.status, res.ms, res.bytes, JSON.stringify({ title: pageTitle, checks }), a.id).run();
+  // Pages that answered properly also get the accessibility and privacy tests, which need a real browser and run as a second step.
+  if (browserBinding() && checks.length && res.status < 400) {
+    await DB.batch([
+      DB.prepare("UPDATE audits SET browser_status = NULL WHERE env_id = ? AND path = ? AND id != ? AND browser_status IN ('pending', 'a11y')").bind(a.env_id, a.path, a.id),
+      DB.prepare("UPDATE audits SET browser_status = 'pending', browser_tries = 0 WHERE id = ?").bind(a.id),
+    ]);
+  }
   if (before?.overall != null && overall != null && before.overall - overall >= 10 && a.trigger !== 'manual') {
     const { tellAuditDrop } = await import('./jobs');
     await tellAuditDrop(a.env_id, a.path, before.overall, overall, APP_HOME).catch(() => {});
   }
+}
+
+/* ---------------- Browser tests: accessibility, privacy and consent ---------------- */
+
+const browserBinding = () => (cfEnv as any).BROWSER as unknown;
+export const browserTestsAvailable = () => !!browserBinding();
+
+/** Audits whose browser tests are still waiting or half done, for one environment. */
+export async function browserPending(envId: string) {
+  return (await db().prepare("SELECT path FROM audits WHERE env_id = ? AND status = 'done' AND browser_status IN ('pending', 'a11y', 'run:a11y', 'run:priv') ORDER BY ran_at").bind(envId).all<{ path: string }>()).results;
+}
+
+/**
+ * Runs one step of the browser tests for one waiting audit: first accessibility, then (in a later call) privacy and consent.
+ * Two short steps instead of one long one, so each fits comfortably inside a single request.
+ */
+export async function runPendingBrowser(envId: string, first: string | null = null): Promise<number> {
+  const DB = db();
+  const binding = browserBinding();
+  // Steps left 'running' by a stopped worker go back to where they were.
+  await DB.batch([
+    DB.prepare("UPDATE audits SET browser_status = 'pending' WHERE browser_status = 'run:a11y' AND browser_ran < ?").bind(Date.now() - 3 * 60e3),
+    DB.prepare("UPDATE audits SET browser_status = 'a11y' WHERE browser_status = 'run:priv' AND browser_ran < ?").bind(Date.now() - 3 * 60e3),
+  ]);
+  if (!binding) return 0;
+  // The page someone is looking at goes first; otherwise the one that has waited longest.
+  const a = await DB.prepare("SELECT * FROM audits WHERE env_id = ?1 AND status = 'done' AND browser_status IN ('pending', 'a11y') ORDER BY (path = ?2) DESC, ran_at LIMIT 1").bind(envId, first ?? '').first<AuditRow>();
+  if (!a) return 0;
+  const stage = a.browser_status === 'pending' ? 'a11y' : 'priv';
+  const claimed = await DB.prepare('UPDATE audits SET browser_status = ?, browser_ran = ? WHERE id = ? AND browser_status = ?').bind(`run:${stage}`, Date.now(), a.id, a.browser_status).run();
+  if (!claimed.meta.changes) return 0;
+  let out: BrowserResults = { a11y: null, privacy: null };
+  try { out = { ...out, ...JSON.parse(a.browser_results || '{}') }; } catch {}
+  const target = a.url || '';
+  let browser: any = null;
+  try {
+    const puppeteer = (await import('@cloudflare/puppeteer')).default;
+    try { browser = await puppeteer.launch(binding as any); }
+    catch (e: any) {
+      // The browser service limits how often and how many browsers start. Try again a little later, a few times.
+      if (a.browser_tries < 5) {
+        await DB.prepare('UPDATE audits SET browser_status = ?, browser_tries = browser_tries + 1 WHERE id = ?').bind(a.browser_status, a.id).run();
+        return 0;
+      }
+      throw new Error(`The browser couldn’t start: ${String(e?.message || e).slice(0, 160)}`);
+    }
+    const lib = await import('./browser-audit');
+    if (stage === 'a11y') {
+      const axe = (await import('axe-core/axe.min.js?raw')).default as string;
+      out.a11y = await lib.a11yAudit(browser, target, axe);
+      delete out.a11yError;
+    } else {
+      out.privacy = await lib.consentAudit(browser, target);
+      delete out.privacyError;
+    }
+  } catch (e: any) {
+    const msg = String(e?.message || e).slice(0, 240);
+    if (stage === 'a11y') out.a11yError = msg; else out.privacyError = msg;
+  } finally { await browser?.close().catch(() => {}); }
+  await DB.prepare('UPDATE audits SET browser_status = ?, browser_ran = ?, browser_tries = 0, a11y = ?, privacy = ?, browser_results = ? WHERE id = ?')
+    .bind(stage === 'a11y' ? 'a11y' : 'done', Date.now(), out.a11y?.score ?? null, out.privacy?.score ?? null, JSON.stringify(out), a.id).run();
+  return 1;
+}
+
+export function browserResults(a?: Pick<AuditRow, 'browser_results'> | null): BrowserResults {
+  try { return { a11y: null, privacy: null, ...JSON.parse(a?.browser_results || '{}') }; } catch { return { a11y: null, privacy: null }; }
 }
 
 /* ---------------- Reading ---------------- */

@@ -5,7 +5,8 @@ import ScoreRing from '../../../../components/ScoreRing.astro';
 import Sparkline from '../../../../components/Sparkline.astro';
 import { loadEnvPage, fmt } from '../../../../lib/page';
 import { db, url } from '../../../../lib/server';
-import { excludedReason, queueAudit, type AuditRow, type Category, type Check } from '../../../../lib/audit';
+import { browserResults, excludedReason, queueAudit, type AuditRow, type Category, type Check } from '../../../../lib/audit';
+import { LANG_COOKIE, pickLang } from '../../../../lib/i18n';
 import { listVersions } from '../../../../lib/versions';
 
 const ctx = await loadEnvPage(Astro);
@@ -40,6 +41,37 @@ const changed = checks.filter((c) => prevStatus.has(c.id) && prevStatus.get(c.id
 const series = (k: 'seo' | 'aeo' | 'tech') => [...history].reverse().map((h) => h[k] ?? 0);
 const excluded = a ? excludedReason(a) : null;
 const statusWord = { pass: 'Passes', warn: 'Needs work', fail: 'Failing', info: 'Info' } as const;
+// Accessibility and privacy come from the browser tests, which run as a second step after the plain-HTML audit.
+const br = browserResults(a);
+const A = br.a11y, P = br.privacy;
+const waiting = !!a && !!a.browser_status && a.browser_status !== 'done';
+const lang = pickLang(Astro.request, Astro.cookies.get(LANG_COOKIE)?.value, (Astro.locals as any).__me?.lang);
+// The accessibility engine has its own Swedish texts for each rule.
+const axeSv: Record<string, { help: string; description: string }> = lang === 'sv' && A ? ((await import('axe-core/locales/sv.json')).default as any).rules ?? {} : {};
+const toFix = (k: Category) => checks.filter((c) => c.cat === k && (c.status === 'fail' || c.status === 'warn')).length;
+const fixText = (n: number) => (n ? `${n} to fix` : 'All passing');
+const abFailed = A ? A.levels.A.failed + A.levels.AA.failed : 0;
+const pFix = P ? P.checks.filter((c) => c.status === 'fail' || c.status === 'warn').length : 0;
+const pEarly = P ? P.services.filter((x) => x.needs === 'yes' && x.before).length : 0;
+const notRun = (err?: string) => (err ? 'Couldn’t run' : waiting ? 'Testing…' : 'Not tested yet');
+const tabs = [
+  { id: 'seo', name: 'SEO', score: a?.seo ?? null, status: fixText(toFix('seo')), group: 0 },
+  { id: 'aeo', name: 'AEO', score: a?.aeo ?? null, status: fixText(toFix('aeo')), group: 0 },
+  { id: 'tech', name: 'Technical', score: a?.tech ?? null, status: fixText(toFix('tech')), group: 0 },
+  { id: 'a11y', name: 'Accessibility', score: A?.score ?? null, status: A ? (abFailed ? `${abFailed} at A or AA` : 'No problems found') : notRun(br.a11yError), group: 1 },
+  { id: 'privacy', name: 'Privacy and consent', score: P?.score ?? null, status: P ? (pEarly ? `${pEarly} before consent` : fixText(pFix)) : notRun(br.privacyError), group: 1 },
+];
+const tone = (n: number | null) => (n === null ? 'none' : n >= 85 ? 'good' : n >= 60 ? 'ok' : 'bad');
+const ownSite = (h: string) => h.replace(/^www\./, '') === (a?.url ? new URL(a.url).hostname.replace(/^www\./, '') : '');
+const outside = (ph: { hosts: string[] } | null) => (ph ? new Set(ph.hosts.map((h) => h.split('/')[0]).filter((h) => !ownSite(h))).size : 0);
+const phaseLine = (ph: { cookies: unknown[]; hosts: string[] } | null) => (ph ? `${ph.cookies.length} ${ph.cookies.length === 1 ? 'cookie' : 'cookies'} · ${outside(ph)} outside ${outside(ph) === 1 ? 'host' : 'hosts'}` : '');
+const cell = (v: string | null | undefined, ran: boolean) => (!ran ? '–' : v === 'loaded' ? 'Loaded' : v === 'cookie set' ? 'Cookie set' : v ?? '');
+const verdictWord = { bad: 'Without consent', warn: 'Review', ok: 'Correct', info: 'No consent needed' } as const;
+const verdictTone = { bad: 'bad', warn: 'ok', ok: 'good', info: '' } as const;
+const pWeight = P ? P.checks.reduce((x, c) => x + (c.status === 'info' ? 0 : c.weight), 0) || 1 : 1;
+const manual = ['Everything can be reached and used with the keyboard alone', 'Focus is always visible and moves in a sensible order', 'Alt texts describe the image, not just exist',
+  'Headings and link texts make sense out of context', 'Video has captions, audio has a transcript', 'Nothing flashes, and motion can be paused'];
+const runUrl = url(`e/${env.id}/audits/run`) + `?path=${encodeURIComponent(path)}`;
 const triggerText: Record<string, string> = { first: 'first check', content: 'content changed', structure: 'layout changed', template: 'header/menu changed', version: 'new site version', manual: 'checked on request' };
 ---
 <App title={`${path} · Audit`}>
@@ -50,12 +82,12 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
     {!a ? (
       <section class="z-empty">
         <h2 style="font-size:18px">{path} hasn’t been checked yet</h2>
-        {pending ? <p class="muted" data-audit-runner={canEdit ? url(`e/${env.id}/audits/run`) : undefined}>Checking now…</p>
+        {pending ? <p class="muted" data-audit-runner={canEdit ? runUrl : undefined} data-phase="html">Checking now…</p>
           : canEdit && <form method="post"><button class="z-btn z-btn-primary" type="submit">Check this page</button></form>}
       </section>
     ) : (
       <>
-        <section class="z-card z-audit-head">
+        <header class="z-au-head">
           <div class="z-audit-title">
             <div class="z-eyebrow">Checked {fmt.date(a.ran_at!)} {fmt.time(a.ran_at!)} · {triggerText[a.trigger] ?? a.trigger}{versionOf(a.ran_at!) ? ` · ${versionOf(a.ran_at!)!.label}` : ''}</div>
             <h1 class="z-h1">{path}</h1>
@@ -64,15 +96,40 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
               <a class="z-link" href={a.url!} target="_blank" rel="noopener noreferrer">{a.url} ↗</a>
               <span>HTTP {a.http_status} · {a.fetch_ms} ms · {Math.round((a.bytes ?? 0) / 1024)} KB</span>
             </div>
-            {pending ? <span class="muted" data-audit-runner={canEdit ? url(`e/${env.id}/audits/run`) : undefined}><span class="z-spinner"></span> Re-checking…</span>
+          </div>
+          <div class="z-au-overall">
+            <b>{a.overall ?? '–'}</b>
+            <span class="muted">Overall<br />SEO, AEO and Technical</span>
+            {pending ? <span class="muted" data-audit-runner={canEdit ? runUrl : undefined} data-phase="html"><span class="z-spinner"></span> Re-checking…</span>
               : canEdit && <form method="post"><button class="z-btn z-btn-secondary" type="submit">Check again now</button></form>}
           </div>
-          <div class="z-audit-rings">
-            <ScoreRing score={a.seo} label="SEO" delta={prev ? (a.seo ?? 0) - (prev.seo ?? 0) : null} href="#cat-seo" />
-            <ScoreRing score={a.aeo} label="AEO" delta={prev ? (a.aeo ?? 0) - (prev.aeo ?? 0) : null} href="#cat-aeo" />
-            <ScoreRing score={a.tech} label="Technical" delta={prev ? (a.tech ?? 0) - (prev.tech ?? 0) : null} href="#cat-tech" />
+        </header>
+
+        <div class="z-au-tabrow" role="tablist" aria-label="Audit areas">
+          {[0, 1].map((g) => (
+            <div class={`z-au-group g${g}`}>
+              <span class="z-eyebrow">{g === 0 ? 'Counted in the overall score' : 'Scored on their own'}</span>
+              <div class="z-au-tabs">
+                {tabs.filter((t) => t.group === g).map((t) => (
+                  <button type="button" class="z-au-tab" role="tab" id={`tab-${t.id}`} aria-controls={`p-${t.id}`} aria-selected={t.id === 'seo' ? 'true' : 'false'} tabindex={t.id === 'seo' ? 0 : -1} data-tab={t.id}>
+                    <span class={`z-au-mini ${tone(t.score)}`}>
+                      <svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15.9155" class="z-ring-track" />{t.score !== null && <circle cx="18" cy="18" r="15.9155" class="z-ring-bar" stroke-dasharray={`${t.score} ${100 - t.score}`} stroke-dashoffset="25" />}</svg>
+                      <b>{t.score ?? '–'}</b>
+                    </span>
+                    <span class="z-au-lbl"><strong>{t.name}</strong><small>{t.status}</small></span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {!pending && waiting && (
+          <div class="z-card z-audit-running" data-audit-runner={canEdit ? runUrl : undefined} data-phase="browser" data-state={a.browser_status}>
+            <span class="z-spinner" aria-hidden="true"></span>
+            <span><b>{a.browser_status === 'a11y' || a.browser_status === 'run:priv' ? 'Testing privacy and consent in a browser…' : 'Testing accessibility in a browser…'}</b> <span class="muted">This takes up to a minute. The page updates by itself.</span></span>
           </div>
-        </section>
+        )}
 
         {excluded && (
           <section class="z-card z-audit-note">
@@ -82,6 +139,166 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
               : 'It has noindex, or robots.txt blocks Googlebot, so search and AI answers won’t use it. That is right for log-in, account and thank-you pages. If this page should be found, see “Allowed in search results” below.'}</span>
           </section>
         )}
+
+        {cats.map((cat) => {
+          const list = checks.filter((c) => c.cat === cat.key).sort((x, y) => rank[x.status] - rank[y.status] || y.weight - x.weight);
+          return (
+            <section class="z-au-panel" id={`p-${cat.key}`} role="tabpanel" aria-labelledby={`tab-${cat.key}`} hidden={cat.key !== 'seo'}>
+              <div class="z-card z-audit-cat">
+                <div class="z-audit-cat-head">
+                  <h2>{cat.name}</h2>
+                  <p class="muted">{cat.intro} Each check counts by its weight; “needs work” earns half.</p>
+                </div>
+                <div class="z-checks">
+                  {list.map((c) => (
+                    <details class={`z-check ${c.status}`} open={c.status === 'fail'}>
+                      <summary>
+                        <span class={`z-st ${c.status}`} aria-label={statusWord[c.status]}></span>
+                        <span class="z-check-title"><b>{c.title}</b>{c.scope === 'site' && <span class="z-chip">Site-wide</span>}<span class="muted">{c.found}</span></span>
+                        <span class="z-check-pts" title={`Worth ${c.weight} of ${catWeight(cat.key)} points in ${cat.name}`}>
+                          {lost(c) > 0 ? <span class="down">−{Math.round((lost(c) / catWeight(cat.key)) * 100)}</span> : <span class="up">✓</span>}
+                        </span>
+                      </summary>
+                      <dl class="z-check-body">
+                        <div><dt>Found</dt><dd>{c.found}</dd></div>
+                        <div><dt>Why it matters</dt><dd>{c.why}</dd></div>
+                        {c.status !== 'pass' && <div><dt>How to fix</dt><dd>{c.fix}</dd></div>}
+                        <div><dt>Weight</dt><dd>{c.weight} of {catWeight(cat.key)} points in {cat.name} · {statusWord[c.status].toLowerCase()} {c.status === 'warn' ? '(half the points)' : ''}</dd></div>
+                      </dl>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            </section>
+          );
+        })}
+
+        <section class="z-au-panel" id="p-a11y" role="tabpanel" aria-labelledby="tab-a11y" hidden>
+          {!A ? (
+            <div class="z-card z-audit-cat">
+              <div class="z-audit-cat-head"><h2>Accessibility</h2>
+                <p class="muted">{br.a11yError ? `The test couldn’t run: ${br.a11yError}` : waiting ? 'The page is being tested in a real browser. Results appear here in a moment.' : 'This page hasn’t been tested in a browser yet. Use “Check again now” to run it.'}</p></div>
+            </div>
+          ) : (
+            <>
+              <div class="z-card z-audit-cat">
+                <div class="z-audit-cat-head">
+                  <h2>{A.issues.length ? `${A.issues.length} ${A.issues.length === 1 ? 'problem' : 'problems'} found, ${abFailed} at level A or AA` : 'No problems found by the automated checks'}</h2>
+                  <p class="muted">Tested in a real browser at desktop width against WCAG 2.2. Automated checks cover roughly a third to half of WCAG, so a clean result is not the same as conformance.</p>
+                </div>
+              </div>
+              <div class="z-au-strip">
+                {([['A', 'Level A · the minimum'], ['AA', 'Level AA · what the law asks for'], ['AAA', 'Level AAA · shown, not scored']] as const).map(([k, label]) => {
+                  const l = A.levels[k], total = l.failed + l.passed;
+                  return (
+                    <div class="z-card z-au-tile">
+                      <span class="z-kpi-label">{label}</span>
+                      <span class="z-au-v">{l.failed} failed <small class="muted">of {total} checks</small></span>
+                      <span class="z-au-bar"><i class={k === 'AAA' ? '' : l.failed ? 'ok' : 'good'} style={`width:${total ? Math.round((l.passed / total) * 100) : 0}%`}></i></span>
+                    </div>
+                  );
+                })}
+              </div>
+              {A.issues.length > 0 && (
+                <div class="z-card z-audit-cat">
+                  <div class="z-audit-cat-head"><h2>Problems to fix</h2><p class="muted">Sorted by level, then by how serious each one is. Open one to see where it is and what to change.</p></div>
+                  <div class="z-checks">
+                    {A.issues.map((i, n) => (
+                      <details class="z-check" open={n === 0}>
+                        <summary class="z-au-sum">
+                          <span class={`z-pill ${i.level === 'A' ? 'bad' : i.level === 'AA' ? 'ok' : ''}`}>{i.level}</span>
+                          <span class="z-check-title"><b>{axeSv[i.id]?.help ?? i.help}</b>{i.sc.map((x) => <span class="z-chip">{x}</span>)}<span class="muted">{i.n} {i.n === 1 ? 'element' : 'elements'}</span></span>
+                        </summary>
+                        <dl class="z-check-body">
+                          <div><dt>Found</dt><dd>{i.nodes.map((nd) => <code class="z-au-code" title={nd.html}>{nd.target}</code>)}{i.n > i.nodes.length && <span class="muted"> and {i.n - i.nodes.length} more</span>}</dd></div>
+                          <div><dt>Why it matters</dt><dd>{axeSv[i.id]?.description ?? i.desc}</dd></div>
+                          {i.nodes[0]?.summary && <div><dt>How to fix</dt><dd class="z-au-pre">{i.nodes[0].summary}</dd></div>}
+                          <div><dt>Read more</dt><dd><a class="z-link" href={i.url} target="_blank" rel="noopener noreferrer">{i.id} ↗</a></dd></div>
+                        </dl>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {A.unsure > 0 && <p class="muted z-au-note">{A.unsure} {A.unsure === 1 ? 'check' : 'checks'} couldn’t be decided automatically, for example text on top of images. They are not counted as problems.</p>}
+              <div class="z-card z-audit-cat">
+                <div class="z-audit-cat-head"><h2>Needs a person</h2><p class="muted">No scan can judge these. Go through them by hand before calling the page accessible.</p></div>
+                <ul class="z-au-manual">{manual.map((m) => <li>{m}</li>)}</ul>
+              </div>
+            </>
+          )}
+        </section>
+
+        <section class="z-au-panel" id="p-privacy" role="tabpanel" aria-labelledby="tab-privacy" hidden>
+          {!P ? (
+            <div class="z-card z-audit-cat">
+              <div class="z-audit-cat-head"><h2>Privacy and consent</h2>
+                <p class="muted">{br.privacyError ? `The test couldn’t run: ${br.privacyError}` : waiting ? 'The page is being tested in a real browser. Results appear here in a moment.' : 'This page hasn’t been tested in a browser yet. Use “Check again now” to run it.'}</p></div>
+            </div>
+          ) : (
+            <>
+              <div class="z-card z-audit-cat">
+                <div class="z-audit-cat-head">
+                  <h2>{pEarly ? `${pEarly} ${pEarly === 1 ? 'service runs' : 'services run'} before the visitor has chosen` : pFix ? `${pFix} ${pFix === 1 ? 'thing' : 'things'} to fix in how consent is handled` : 'Nothing runs without consent'}</h2>
+                  <p class="muted">Opened in a clean browser as three separate visitors: one who does nothing, one who presses Reject, and one who presses Accept. Everything the page stored or contacted was recorded each time.</p>
+                </div>
+              </div>
+              <div class="z-au-strip">
+                <div class="z-card z-au-tile"><span class="z-kpi-label">Before any choice</span><span class="z-au-v">{phaseLine(P.phases.before)}</span>
+                  <span class={`z-pill ${pEarly ? 'bad' : 'good'}`}>{pEarly ? `${pEarly} need consent` : 'Nothing needs consent'}</span></div>
+                <div class="z-card z-au-tile"><span class="z-kpi-label">After Reject</span>
+                  {P.phases.reject ? <><span class="z-au-v">{phaseLine(P.phases.reject)}</span><span class={`z-pill ${P.checks.find((c) => c.id === 'priv.reject')?.status === 'fail' ? 'bad' : 'good'}`}>{P.checks.find((c) => c.id === 'priv.reject')?.status === 'fail' ? 'Still running' : 'Respected'}</span></>
+                    : <span class="muted">{!P.dialog.found ? 'No dialog to answer' : !P.dialog.reject ? 'No Reject button to press' : 'Reject couldn’t be pressed'}</span>}</div>
+                <div class="z-card z-au-tile"><span class="z-kpi-label">After Accept</span>
+                  {P.phases.accept ? <><span class="z-au-v">{phaseLine(P.phases.accept)}</span><span class="z-pill">As chosen</span></>
+                    : <span class="muted">{!P.dialog.found ? 'No dialog to answer' : 'Accept couldn’t be pressed'}</span>}</div>
+              </div>
+              {P.services.length > 0 && (
+                <div class="z-card z-audit-cat">
+                  <div class="z-audit-cat-head"><h2>What ran, and when</h2><p class="muted">One row per service. A service that needs consent should only appear in the last column.</p></div>
+                  <div class="z-au-scroll">
+                    <table class="z-au-table">
+                      <thead><tr><th scope="col">Service</th><th scope="col">Before any choice</th><th scope="col">After Reject</th><th scope="col">After Accept</th><th scope="col">Verdict</th></tr></thead>
+                      <tbody>
+                        {P.services.map((sv) => (
+                          <tr>
+                            <th scope="row">{sv.name}<small>{sv.kind} · {sv.needs === 'yes' ? 'needs consent' : sv.needs === 'advise' ? 'no cookie' : 'no consent needed'}</small></th>
+                            {([[sv.before, true], [sv.reject, !!P.phases.reject], [sv.accept, !!P.phases.accept]] as const).map(([v, ran]) => (
+                              <td class={v && ran ? '' : 'muted'}>{ran && !v ? 'Not loaded' : v && v !== 'loaded' && v !== 'cookie set' ? <code class="z-au-code">{v}</code> : cell(v, ran)}</td>
+                            ))}
+                            <td><span class={`z-pill ${verdictTone[sv.verdict]}`}>{verdictWord[sv.verdict]}</span><small class="muted z-au-vnote">{sv.note}</small></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {P.otherHosts.length > 0 && <p class="muted z-au-note">Also contacted, not judged: {P.otherHosts.join(', ')}</p>}
+                </div>
+              )}
+              <div class="z-card z-audit-cat">
+                <div class="z-audit-cat-head"><h2>{P.dialog.found ? 'The consent dialog' : 'Checks'}</h2>
+                  <p class="muted">{P.dialog.found ? 'How the dialog itself behaves, checked by pressing its buttons.' : 'No consent dialog was detected on this page.'} Each check counts by its weight; “needs work” earns half.</p></div>
+                <div class="z-checks">
+                  {[...P.checks].sort((x, y) => rank[x.status] - rank[y.status] || y.weight - x.weight).map((c) => (
+                    <details class={`z-check ${c.status}`} open={c.status === 'fail'}>
+                      <summary>
+                        <span class={`z-st ${c.status}`} aria-label={statusWord[c.status]}></span>
+                        <span class="z-check-title"><b>{c.title}</b><span class="muted">{c.found}</span></span>
+                        <span class="z-check-pts">{c.status === 'info' ? '' : c.status === 'pass' ? <span class="up">✓</span> : <span class="down">−{Math.round(((c.status === 'warn' ? c.weight / 2 : c.weight) / pWeight) * 100)}</span>}</span>
+                      </summary>
+                      <dl class="z-check-body">
+                        <div><dt>Found</dt><dd>{c.found}</dd></div>
+                        <div><dt>Why it matters</dt><dd>{c.why}</dd></div>
+                        {c.status !== 'pass' && c.fix && <div><dt>How to fix</dt><dd>{c.fix}</dd></div>}
+                      </dl>
+                    </details>
+                  ))}
+                </div>
+              </div>
+              <p class="muted z-au-note z-au-legal">This report shows what the page does in a browser. It doesn’t cover agreements with suppliers, the legal basis for processing, or how long data is kept, so it is not a statement that the site complies with GDPR.</p>
+            </>
+          )}
+        </section>
 
         {history.length > 1 && (
           <section class="z-card">
@@ -102,50 +319,41 @@ const triggerText: Record<string, string> = { first: 'first check', content: 'co
             )}
           </section>
         )}
-
-        {cats.map((cat) => {
-          const list = checks.filter((c) => c.cat === cat.key).sort((x, y) => rank[x.status] - rank[y.status] || y.weight - x.weight);
-          const score = a[cat.key];
-          return (
-            <section class="z-card z-audit-cat" id={`cat-${cat.key}`}>
-              <div class="z-audit-cat-head">
-                <h2>{cat.name}<span class={`z-pill ${score === null ? '' : score >= 85 ? 'good' : score >= 60 ? 'ok' : 'bad'}`}>{score ?? '–'}</span></h2>
-                <p class="muted">{cat.intro} Each check counts by its weight; “needs work” earns half.</p>
-              </div>
-              <div class="z-checks">
-                {list.map((c) => (
-                  <details class={`z-check ${c.status}`} open={c.status === 'fail'}>
-                    <summary>
-                      <span class={`z-st ${c.status}`} aria-label={statusWord[c.status]}></span>
-                      <span class="z-check-title"><b>{c.title}</b>{c.scope === 'site' && <span class="z-chip">Site-wide</span>}<span class="muted">{c.found}</span></span>
-                      <span class="z-check-pts" title={`Worth ${c.weight} of ${catWeight(cat.key)} points in ${cat.name}`}>
-                        {lost(c) > 0 ? <span class="down">−{Math.round((lost(c) / catWeight(cat.key)) * 100)}</span> : <span class="up">✓</span>}
-                      </span>
-                    </summary>
-                    <dl class="z-check-body">
-                      <div><dt>Found</dt><dd>{c.found}</dd></div>
-                      <div><dt>Why it matters</dt><dd>{c.why}</dd></div>
-                      {c.status !== 'pass' && <div><dt>How to fix</dt><dd>{c.fix}</dd></div>}
-                      <div><dt>Weight</dt><dd>{c.weight} of {catWeight(cat.key)} points in {cat.name} · {statusWord[c.status].toLowerCase()} {c.status === 'warn' ? '(half the points)' : ''}</dd></div>
-                    </dl>
-                  </details>
-                ))}
-              </div>
-            </section>
-          );
-        })}
       </>
     )}
   </main>
 </App>
 <script>
+  // Tabs: one audit area at a time. The address keeps the choice (#privacy), so a link can open a given tab.
+  const tabs = [...document.querySelectorAll<HTMLElement>('.z-au-tab')];
+  const pick = (t: HTMLElement, focus = false, remember = true) => {
+    for (const b of tabs) {
+      const on = b === t;
+      b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1;
+      const p = document.getElementById(b.getAttribute('aria-controls')!); if (p) p.hidden = !on;
+    }
+    if (focus) t.focus();
+    if (remember) history.replaceState(null, '', '#' + t.dataset.tab);
+  };
+  tabs.forEach((b, i) => {
+    b.addEventListener('click', () => pick(b));
+    b.addEventListener('keydown', (e) => {
+      const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (d) { e.preventDefault(); pick(tabs[(i + d + tabs.length) % tabs.length], true); }
+    });
+  });
+  const first = tabs.find((b) => b.dataset.tab === location.hash.slice(1).replace(/^cat-/, ''));
+  if (first) pick(first, false, false);
+
+  // While this page is being checked, run the waiting steps and refresh when something new is ready.
   const box = document.querySelector<HTMLElement>('[data-audit-runner]');
   if (box) {
-    const endpoint = box.dataset.auditRunner!;
+    const endpoint = box.dataset.auditRunner!, browser = box.dataset.phase === 'browser', was = box.dataset.state;
     const step = async (): Promise<void> => {
       try {
         const j = await (await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' })).json();
-        if (j.pending > 0) { setTimeout(step, j.ran ? 200 : 3000); return; }
+        const more = browser ? j.state === was : j.pending > 0;
+        if (more) { setTimeout(step, j.ran ? 200 : 3000); return; }
       } catch {}
       location.reload();
     };

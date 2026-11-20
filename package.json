@@ -15,7 +15,9 @@
   "dependencies": {
     "@astrojs/cloudflare": "^14.4.6",
     "@clerk/astro": "^4.1.22",
+    "@cloudflare/puppeteer": "^2.0.1",
     "astro": "^7.4.7",
+    "axe-core": "^4.14.1",
     "node-html-parser": "9.0.5"
   },
   "devDependencies": {
